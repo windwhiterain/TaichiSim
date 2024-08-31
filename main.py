@@ -19,29 +19,30 @@ mat=tt.matrix(dim,dim,float)
 up=vec(0,0,1)
 
 class Solver(ABC):
-    @abstractmethod
-    def fit(self,cloth:'Simulator'):pass
+    def fit(self,simulator:'Simulator'):
+        self.simulator=simulator
+        self._fit()
+    def _fit(self):pass
     @abstractmethod
     def get_requires(self)->list[str]:pass
-    @abstractmethod
-    def begin_step(self,dt:float):pass
+    def begin_step(self,dt:float):
+        self.dt=dt
+        self._begin_step()
+    def _begin_step(self):pass
     @abstractmethod
     def temp_step(self):pass
-    @abstractmethod
     def end_step(self):pass
 
 @ti.data_oriented
-class NewtonSolver(Solver):
+class NewtonRaphsonSolver(Solver):
     def __init__(self) -> None:
         super().__init__()    
     #impl Solver
-    def fit(self,simulator:'Simulator'):
-        self.simulator=simulator
+    def _fit(self):
         self.b=ti.ndarray(float,dim*self.simulator.NV)
-    def get_requires():
+    def get_requires(self):
         return ['M','gradiants','H']
-    def begin_step(self,dt:float):
-        self.dt=dt
+    def _begin_step(self):
         self.solver = SparseSolver(solver_type="LDLT")
         self.A_pattern_dirty=True
     def temp_step(self):
@@ -53,7 +54,6 @@ class NewtonSolver(Solver):
         self.update_b(self.dt)
         d_positions=self.solver.solve(self.b)
         self.update_temp_position(d_positions)
-    def end_step(self):pass
     #
     def update_b(self,dt:float):
         self._update_b(dt,self.b)
@@ -72,16 +72,58 @@ class NewtonSolver(Solver):
                     self.simulator.temp_positions[V][d]+=d_position[dim*V+d]
 
 @ti.data_oriented
-class PDSolver(Solver):
+class ProjectiveDynamicSolver(Solver):
     def __init__(self) -> None:
         super().__init__()
     #impl Solver
     def fit(self,simulator:'Simulator'):
+        pass
 
+
+@ti.data_oriented
+class ConjugateHessionSolver(Solver):
+    pass
+
+@ti.data_oriented
+class DiagnalHessionSolver(Solver):
+    def __init__(self) -> None:
+        super().__init__()
+    #impl Solver
+    def _fit(self):
+        self.diag_hession=ti.field(vec,self.simulator.NV)
+    def get_requires(self) -> list[str]:
+        return ['hessions','gradiants']
+    def temp_step(self):
+        self.update_diag_hession()
+        self.update_temp_position()
+    #
+    @ti.kernel
+    def update_diag_hession(self):
+        self.diag_hession.fill(vec(0))
+        for E in range(self.simulator.NE):
+            edge=self.simulator.edges[E]
+            hession=self.simulator.hessions[E]
+            for d in ti.static(range(dim)):
+                self.diag_hession[edge[0]][d]+=hession[d,d]
+                self.diag_hession[edge[1]][d]+=hession[d,d]
+
+    @ti.kernel
+    def update_temp_position(self):
+        for V in range(self.simulator.NV):
+            if self.simulator.mask[V]:
+                mass=self.simulator.masses[V]
+                temp_position=self.simulator.temp_positions[V]
+                self.simulator.temp_positions[V]+=(-mass*(temp_position-self.simulator.positions[V])/self.dt**2-self.simulator.gradiants[V])/(mass/self.dt**2+self.diag_hession[V])
 
 
 @ti.data_oriented
 class Simulator:
+    require_dependencies={
+        'M':[],
+        'gradiants':[],
+        'hessions':[],
+        'H':['hessions'],
+    }
     def __init__(self,N:int,k:float,solver:Solver) -> None:
         #geometry
         self.create_geometry(N)
@@ -110,13 +152,21 @@ class Simulator:
         self.hessions=ti.field(mat,self.NE)
         self.H_builder=SparseMatrixBuilder(dim * self.NV, dim * self.NV, max_num_triplets=self.NE*dim**2*4) 
         self.b=ti.ndarray(float,dim*self.NV)
+        self.step=4
 
         #solver
         self.solver=solver
         self.solver.fit(self)
+        self.solve_requrie_dependency(solver.get_requires())
         
+    def solve_requrie_dependency(self,requires:list[str]):
+        self.requires=requires
+        for require in requires:
+            dependencies=self.require_dependencies[require]
+            for dependency in dependencies:
+                if not dependency in self.requires:
+                    self.requires.append(dependency)
 
-    
     def create_geometry(self,N:int):
         self.N=N
         self.NV = (N + 1) ** 2  # number of vertices
@@ -246,10 +296,13 @@ class Simulator:
         self.temp_positions.copy_from(self.positions)
 
         self.solver.begin_step(dt)
-        for iteration in range(1):
-            self.update_gradiant()
-            self.update_hessions()
-            self.update_H()
+        for _ in range(self.step):
+            if 'gradiants' in self.requires:
+                self.update_gradiant()
+            if 'hessions' in self.requires:
+                self.update_hessions()
+            if 'H' in self.requires:
+                self.update_H()
             self.solver.temp_step()
         self.solver.end_step()
 
@@ -267,12 +320,12 @@ class Simulator:
 
 
 def main():
-    ti.init(arch=ti.cuda,default_fp=ti.f32)
+    ti.init(arch=ti.gpu,default_fp=ti.f32)
 
     time=0
     dt = 0.2
     pause = False
-    cloth = Simulator(N=19,k=8,solver=NewtonSolver())
+    cloth = Simulator(N=19,k=8,solver=DiagnalHessionSolver())
     cloth.mask[0]=False
     rest_position=cloth.init_positions[0]
     cloth.masses[0]=1024

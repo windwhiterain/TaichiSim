@@ -20,44 +20,68 @@ up=vec(0,0,1)
 
 class Solver(ABC):
     @abstractmethod
-    def fit(cloth:'Cloth'):pass
+    def fit(self,cloth:'Simulator'):pass
     @abstractmethod
-    def get_requries()->list[str]:pass
+    def get_requires(self)->list[str]:pass
     @abstractmethod
-    def update(dt:float):pass
+    def begin_step(self,dt:float):pass
+    @abstractmethod
+    def temp_step(self):pass
+    @abstractmethod
+    def end_step(self):pass
 
 @ti.data_oriented
 class NewtonSolver(Solver):
     def __init__(self) -> None:
-        self.solver = SparseSolver(solver_type="LDLT")
-        self.A_pattern_dirty=True
+        super().__init__()    
     #impl Solver
-    def fit(self,cloth:'Cloth'):
-        self.cloth=cloth
-        self.b=ti.ndarray(float,dim*self.cloth.NV)
+    def fit(self,simulator:'Simulator'):
+        self.simulator=simulator
+        self.b=ti.ndarray(float,dim*self.simulator.NV)
     def get_requires():
         return ['M','gradiants','H']
-    def update(self,dt:float):
-        A=self.cloth.M*(1/dt**2)+self.cloth.H
+    def begin_step(self,dt:float):
+        self.dt=dt
+        self.solver = SparseSolver(solver_type="LDLT")
+        self.A_pattern_dirty=True
+    def temp_step(self):
+        A=self.simulator.M*(1/self.dt**2)+self.simulator.H
         if self.A_pattern_dirty:
             self.solver.analyze_pattern(A)
             self.A_pattern_dirty=False
         self.solver.factorize(A)
-        self.update_b(dt,self.b)
+        self.update_b(self.dt)
         d_positions=self.solver.solve(self.b)
-        self.cloth.update_temp_position(d_positions)
+        self.update_temp_position(d_positions)
+    def end_step(self):pass
     #
     def update_b(self,dt:float):
         self._update_b(dt,self.b)
     @ti.kernel
     def _update_b(self,dt:float,b:tt.ndarray()):
-        for V in range(self.cloth.NV):
-            mass=self.cloth.masses[V]
+        for V in range(self.simulator.NV):
+            mass=self.simulator.masses[V]
             for d in ti.static(range(dim)):
-                b[dim*V+d]=-mass*(self.cloth.temp_positions[V][d]-self.cloth.positions[V][d])/dt-self.cloth.gradiants[V][d]
-    
+                b[dim*V+d]=-mass*(self.simulator.temp_positions[V][d]-self.simulator.positions[V][d])/dt-self.simulator.gradiants[V][d]
+
+    @ti.kernel
+    def update_temp_position(self,d_position:tt.ndarray()):
+        for V in range(self.simulator.NV):
+            if self.simulator.mask[V]:
+                for d in ti.static(range(dim)):
+                    self.simulator.temp_positions[V][d]+=d_position[dim*V+d]
+
 @ti.data_oriented
-class Cloth:
+class PDSolver(Solver):
+    def __init__(self) -> None:
+        super().__init__()
+    #impl Solver
+    def fit(self,simulator:'Simulator'):
+
+
+
+@ti.data_oriented
+class Simulator:
     def __init__(self,N:int,k:float,solver:Solver) -> None:
         #geometry
         self.create_geometry(N)
@@ -71,16 +95,20 @@ class Cloth:
         self.M_builder=SparseMatrixBuilder(dim * self.NV, dim * self.NV, max_num_triplets=self.NV*dim)
         self.update_M()
 
+        self.mask=ti.field(bool,self.NV)
+        self.mask.fill(True)
+
         #state
-        self.positions=copy(self.init_positions)
+        self.positions=ti.field(vec,self.NV)
+        self.positions.copy_from(self.init_positions)
         self.velocities=ti.field(vec,self.NV)
         self.velocities.fill(vec(0))
         
         #simulate
-        self.temp_positions=copy(self.positions)
+        self.temp_positions=ti.field(vec,self.NV)
         self.gradiants=ti.field(vec,self.NV)
         self.hessions=ti.field(mat,self.NE)
-        self.H_builder=SparseMatrixBuilder(dim * self.NV, dim * self.NV, max_num_triplets=10000) 
+        self.H_builder=SparseMatrixBuilder(dim * self.NV, dim * self.NV, max_num_triplets=self.NE*dim**2*4) 
         self.b=ti.ndarray(float,dim*self.NV)
 
         #solver
@@ -198,32 +226,35 @@ class Cloth:
     @ti.kernel
     def apply_velocity(self,dt:float):
         for V in range(self.NV):
-            self.positions[V]+=self.velocities[V]*dt
+            if self.mask[V]:
+                self.positions[V]+=self.velocities[V]*dt
 
     @ti.kernel
-    def update_temp_position(self,d_position:tt.ndarray()):
+    def apply_temp_position(self):
         for V in range(self.NV):
-            for d in ti.static(range(dim)):
-                self.temp_positions[V][d]+=d_position[dim*V+d]
+            if self.mask[V]:
+                self.positions[V]=self.temp_positions[V]
 
     @ti.kernel
-    def update_velocity(self):
+    def update_velocity(self,dt:float):
         for V in range(self.NV):
-            self.velocities[V]+=self.temp_positions[V]-self.positions[V]
+            if self.mask[V]:
+                self.velocities[V]+=(self.temp_positions[V]-self.positions[V])/dt
 
     def update(self, dt:float):
         self.apply_velocity(dt)
         self.temp_positions.copy_from(self.positions)
-        
-        
+
+        self.solver.begin_step(dt)
         for iteration in range(1):
             self.update_gradiant()
             self.update_hessions()
             self.update_H()
-            self.solver.update(dt)
+            self.solver.temp_step()
+        self.solver.end_step()
 
-        self.update_velocity()
-        self.positions.copy_from(self.temp_positions)
+        self.update_velocity(dt)
+        self.apply_temp_position()
 
 
 
@@ -232,7 +263,7 @@ class Cloth:
         scene.particles(self.positions, radius, color)
     @ti.func
     def get_edge_vec(self,positions:ti.template(),E:int):
-        return self.positions[self.edges[E][1]]-self.positions[self.edges[E][0]]
+        return positions[self.edges[E][1]]-positions[self.edges[E][0]]
 
 
 def main():
@@ -241,7 +272,8 @@ def main():
     time=0
     dt = 0.2
     pause = False
-    cloth = Cloth(N=5,k=8,solver=NewtonSolver())
+    cloth = Simulator(N=19,k=8,solver=NewtonSolver())
+    cloth.mask[0]=False
     rest_position=cloth.init_positions[0]
     cloth.masses[0]=1024
     cloth.update_M()
@@ -296,7 +328,7 @@ def main():
             pause = not pause
 
         if not pause:
-            cloth.positions[0]=rest_position+vec(0,tm.sin(time/10),tm.cos(time/10))*0.02*min(time/6,1)
+            cloth.positions[0]=rest_position+vec(0,tm.sin(time/10),tm.cos(time/10))*0.2*min(time/6,1)
             cloth.update(dt)
             time+=dt
 

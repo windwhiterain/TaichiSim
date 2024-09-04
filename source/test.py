@@ -1,0 +1,2 @@
+import TaichiSim
+TaichiSim.test()

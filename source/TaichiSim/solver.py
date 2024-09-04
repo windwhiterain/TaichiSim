@@ -1,9 +1,10 @@
 from TaichiLib import *
 from abc import ABC, abstractmethod
 from taichi.linalg import SparseSolver
+from . import simulator
 
 class Solver(ABC):
-    def fit(self,simulator:'Simulator'):
+    def fit(self,simulator:'simulator.Simulator'):
         self.simulator=simulator
         self._fit()
     def _fit(self):pass

@@ -1,6 +1,6 @@
 from taichi.linalg import SparseMatrixBuilder
 from TaichiLib import *
-from .solver import Solver
+from . import solver 
 
 @ti.data_oriented
 class Simulator:
@@ -10,7 +10,7 @@ class Simulator:
         'hessions':[],
         'H':['hessions'],
     }
-    def __init__(self,N:int,k:float,solver:Solver) -> None:
+    def __init__(self,N:int,k:float,solver:'solver.Solver') -> None:
         #geometry
         self.create_geometry(N)
 

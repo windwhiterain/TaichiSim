@@ -2,8 +2,6 @@ from .simulator import *
 from .solver import *
 
 def test():
-    ti.init(arch=ti.gpu,default_fp=ti.f32)
-
     time=0
     dt = 0.2
     pause = False

@@ -4,6 +4,7 @@ import taichi.types as tt
 
 dim=3
 vec=tt.vector(dim,float)
+veci=tt.vector(dim,int)
 pairi=tt.vector(2,int)
 mat=tt.matrix(dim,dim,float)
 up=vec(0,0,1)
@@ -16,15 +17,28 @@ class Triangle:
 
 @ti.dataclass
 class Bound:
-    max:vec
     min:vec
+    max:vec
+    @ti.func
+    def round(self,unit:float=1.0)->'BoundI':
+        return BoundI(tm.round(self.min/unit,int),tm.round(self.max/unit,int))
 
 @ti.func
-def get_bound(triangle:Triangle)->Bound:
+def get_sphere_bound(center:vec,radius:float)->Bound:
+    return Bound(center-vec(radius),center+vec(radius))
+
+@ti.dataclass
+class BoundI:
+    min:veci
+    max:veci
+
+@ti.func
+def get_traingle_bound(triangle:Triangle)->Bound:
     ret=Bound()
     for d in ti.static(range(dim)):
-        ret.max[d]=tm.max(triangle.x[d],triangle.y[d],triangle.z[d])
         ret.min[d]=tm.min(triangle.x[d],triangle.y[d],triangle.z[d])
+        ret.max[d]=tm.max(triangle.x[d],triangle.y[d],triangle.z[d])
+
 
 
 

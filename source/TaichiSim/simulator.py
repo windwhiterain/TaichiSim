@@ -1,6 +1,7 @@
 from taichi.linalg import SparseMatrixBuilder
 from TaichiLib import *
 from . import solver 
+from . import collision_handler
 
 @ti.data_oriented
 class Simulator:
@@ -44,6 +45,9 @@ class Simulator:
         self.solver=solver
         self.solver.fit(self)
         self.solve_requrie_dependency(solver.get_requires())
+
+        #collision
+        self.collision_handler=collision_handler.CollisionHandler()
         
     def solve_requrie_dependency(self,requires:list[str]):
         self.requires=requires
@@ -190,6 +194,7 @@ class Simulator:
             if 'H' in self.requires:
                 self.update_H()
             self.solver.temp_step()
+            self.collision_handler.step()
         self.solver.end_step()
 
         self.update_velocity(dt)

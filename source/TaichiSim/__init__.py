@@ -5,7 +5,7 @@ def test():
     time=0
     dt = 0.2
     pause = False
-    cloth = Simulator(N=19,k=8,solver=DiagnalHessionSolver())
+    cloth = Simulator(N=5,k=8,bound=Bound(-vec(16),vec(16)),solver=DiagnalHessionSolver())
     cloth.mask[0]=False
     rest_position=cloth.init_positions[0]
     cloth.masses[0]=1024

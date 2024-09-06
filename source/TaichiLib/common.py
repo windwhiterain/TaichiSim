@@ -22,6 +22,11 @@ class Bound:
     @ti.func
     def round(self,unit:float=1.0)->'BoundI':
         return BoundI(tm.round(self.min/unit,int),tm.round(self.max/unit,int))
+    @ti.func
+    def to_size(self,unit:float=1.0)->vec:
+        return (self.max-self.min)/unit
+    def to_size_py(self,unit:float=1.0)->vec:
+        return (self.max-self.min)/unit
 
 @ti.func
 def get_sphere_bound(center:vec,radius:float)->Bound:

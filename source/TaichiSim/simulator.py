@@ -11,7 +11,8 @@ class Simulator:
         'hessions':[],
         'H':['hessions'],
     }
-    def __init__(self,N:int,k:float,solver:'solver.Solver') -> None:
+    def __init__(self,N:int,k:float,bound:Bound,solver:'solver.Solver') -> None:
+        self.bound=bound
         #geometry
         self.create_geometry(N)
 
@@ -47,7 +48,7 @@ class Simulator:
         self.solve_requrie_dependency(solver.get_requires())
 
         #collision
-        self.collision_handler=collision_handler.CollisionHandler()
+        self.collision_handler=collision_handler.CollisionHandler(0.1,self)
         
     def solve_requrie_dependency(self,requires:list[str]):
         self.requires=requires

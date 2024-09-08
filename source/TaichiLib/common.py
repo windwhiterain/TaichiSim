@@ -8,6 +8,8 @@ veci=tt.vector(dim,int)
 pairi=tt.vector(2,int)
 mat=tt.matrix(dim,dim,float)
 up=vec(0,0,1)
+root:ti.SNode=ti.root
+
 
 @ti.dataclass
 class Triangle:

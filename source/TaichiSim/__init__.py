@@ -5,7 +5,7 @@ def test():
     time=0
     dt = 0.2
     pause = False
-    cloth = Simulator(N=5,k=8,bound=Bound(-vec(16),vec(16)),solver=DiagnalHessionSolver())
+    cloth = Simulator(N=19,k=8,bound=Bound(-vec(16),vec(16)),solver=DiagnalHessionSolver())
     cloth.mask[0]=False
     rest_position=cloth.init_positions[0]
     cloth.masses[0]=1024
@@ -59,6 +59,8 @@ def test():
 
         if window.is_pressed(ti.ui.SPACE):
             pause = not pause
+            if pause:
+                ti.profiler.print_kernel_profiler_info() 
 
         if not pause:
             cloth.positions[0]=rest_position+vec(0,tm.sin(time/10),tm.cos(time/10))*0.2*min(time/6,1)
@@ -73,3 +75,4 @@ def test():
         
 
         window.show()
+

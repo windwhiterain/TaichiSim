@@ -1,7 +1,9 @@
+from taichi.lang.struct import Struct
 from taichi.linalg import SparseMatrixBuilder
 from TaichiLib import *
 from . import solver 
 from . import collision_handler
+from . import constraint
 
 @ti.data_oriented
 class Simulator:
@@ -13,6 +15,9 @@ class Simulator:
     }
     def __init__(self,N:int,k:float,bound:Bound,solver:'solver.Solver') -> None:
         self.bound=bound
+        self.max_displace_length=1/N/4
+        self.safe_distance=self.max_displace_length/3
+        self.max_edge_length=2/N
         #geometry
         self.create_geometry(N)
 
@@ -35,7 +40,8 @@ class Simulator:
         self.velocities.fill(vec(0))
         
         #simulate
-        self.temp_positions=ti.field(vec,self.NV)
+        self.prev_positions=ti.field(vec,self.NV)
+        self.constrainted_positions=ti.field(vec,self.NV)
         self.gradiants=ti.field(vec,self.NV)
         self.hessions=ti.field(mat,self.NE)
         self.H_builder=SparseMatrixBuilder(dim * self.NV, dim * self.NV, max_num_triplets=self.NE*dim**2*4) 
@@ -47,8 +53,11 @@ class Simulator:
         self.solver.fit(self)
         self.solve_requrie_dependency(solver.get_requires())
 
+        #constraint
+        self.max_edge_length_constraint=constraint.MaxLength(self.max_edge_length,self.edges,self.constrainted_positions,self.masses)
+
         #collision
-        self.collision_handler=collision_handler.CollisionHandler(2/N,self)
+        self.collision_handler=collision_handler.CollisionHandler(3**(1/3)*self.max_edge_length,self)
         
     def solve_requrie_dependency(self,requires:list[str]):
         self.requires=requires
@@ -131,7 +140,7 @@ class Simulator:
         for E in range(self.NE):
             k=self.elasticities[E]
             edge=self.edges[E]
-            edge_vec=self.get_edge_vec(self.temp_positions,E)
+            edge_vec=self.get_edge_vec(self.constrainted_positions,E)
             norm=(edge_vec.norm()-self.rest_lens[E])*k
             direction=edge_vec.normalized()
             gradiant=direction*norm
@@ -141,7 +150,7 @@ class Simulator:
     @ti.kernel
     def update_hessions(self):
         for E in self.edges:
-            edge_vec=self.get_edge_vec(self.temp_positions,E)
+            edge_vec=self.get_edge_vec(self.constrainted_positions,E)
             len=edge_vec.norm()
             rest_len=self.rest_lens[E]
             k=self.elasticities[E]
@@ -162,7 +171,6 @@ class Simulator:
                 builder[edge[1]*dim+n,edge[1]*dim+m]+=hession[n,m]
                 builder[edge[0]*dim+n,edge[1]*dim+m]-=hession[n,m]
                 builder[edge[1]*dim+n,edge[0]*dim+m]-=hession[n,m]
-    
 
     @ti.kernel
     def apply_velocity(self,dt:float):
@@ -174,17 +182,18 @@ class Simulator:
     def apply_temp_position(self):
         for V in range(self.NV):
             if self.mask[V]:
-                self.positions[V]=self.temp_positions[V]
+                self.positions[V]=self.constrainted_positions[V]
 
     @ti.kernel
     def update_velocity(self,dt:float):
         for V in range(self.NV):
             if self.mask[V]:
-                self.velocities[V]+=(self.temp_positions[V]-self.positions[V])/dt
+                self.velocities[V]+=(self.constrainted_positions[V]-self.positions[V])/dt
 
     def update(self, dt:float):
+        self.prev_positions.copy_from(self.positions)
         self.apply_velocity(dt)
-        self.temp_positions.copy_from(self.positions)
+        self.constrainted_positions.copy_from(self.positions)
 
         self.solver.begin_step(dt)
         for _ in range(self.step):
@@ -197,7 +206,9 @@ class Simulator:
             self.solver.temp_step()
         self.solver.end_step()
 
+        self.collision_handler.update()
         self.collision_handler.step()
+        self.update_single_constraint(self.max_edge_length_constraint,2,0)
 
         self.update_velocity(dt)
         self.apply_temp_position()
@@ -209,4 +220,18 @@ class Simulator:
         scene.particles(self.positions, radius, color)
     @ti.func
     def get_edge_vec(self,positions:ti.template(),E:int):
-        return positions[self.edges[E][1]]-positions[self.edges[E][0]]
+        return self.positions[self.edges[E][1]]-positions[self.edges[E][0]]
+    @ti.func
+    def get_edge_segment(self,positions:ti.template(),E:int) -> Segment:
+        return Segment(self.positions[self.edges[E][0]],self.positions[self.edges[E][1]])
+    
+    def update_single_constraint(self,constrain:'constraint.Constraint',group_num:int,max_loss):
+        constrain.step(True)
+        if constrain.get_loss()<=max_loss:
+            return
+        while True:
+            for iteration in range(group_num-1):
+                constrain.step(False) 
+            constrain.step(True)
+            if constrain.get_loss()<=max_loss:
+                break

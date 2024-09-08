@@ -47,14 +47,14 @@ class NewtonRaphsonSolver(Solver):
         for V in range(self.simulator.NV):
             mass=self.simulator.masses[V]
             for d in ti.static(range(dim)):
-                b[dim*V+d]=-mass*(self.simulator.temp_positions[V][d]-self.simulator.positions[V][d])/dt-self.simulator.gradiants[V][d]
+                b[dim*V+d]=-mass*(self.simulator.constrainted_positions[V][d]-self.simulator.positions[V][d])/dt-self.simulator.gradiants[V][d]
 
     @ti.kernel
     def update_temp_position(self,d_position:tt.ndarray()):
         for V in range(self.simulator.NV):
             if self.simulator.mask[V]:
                 for d in ti.static(range(dim)):
-                    self.simulator.temp_positions[V][d]+=d_position[dim*V+d]
+                    self.simulator.constrainted_positions[V][d]+=d_position[dim*V+d]
 
 @ti.data_oriented
 class ProjectiveDynamicSolver(Solver):
@@ -97,5 +97,5 @@ class DiagnalHessionSolver(Solver):
         for V in range(self.simulator.NV):
             if self.simulator.mask[V]:
                 mass=self.simulator.masses[V]
-                temp_position=self.simulator.temp_positions[V]
-                self.simulator.temp_positions[V]+=(-mass*(temp_position-self.simulator.positions[V])/self.dt**2-self.simulator.gradiants[V])/(mass/self.dt**2+self.diag_hession[V])
+                temp_position=self.simulator.constrainted_positions[V]
+                self.simulator.constrainted_positions[V]+=(-mass*(temp_position-self.simulator.positions[V])/self.dt**2-self.simulator.gradiants[V])/(mass/self.dt**2+self.diag_hession[V])

@@ -1,11 +1,12 @@
 from cgi import print_form
 from TaichiLib import *
+from . import collision_handler
 
 from abc import abstractmethod,ABC
 
 class SpatialQuery(ABC):
     @abstractmethod
-    def append(self,bound:BoundI,elem_idx:int,id:int):pass 
+    def append(self,bound:BoundI,center:veci,idx:int):pass 
     @abstractmethod
     def update(self):pass
     @abstractmethod
@@ -14,44 +15,54 @@ class SpatialQuery(ABC):
 
 @ti.data_oriented
 class Grid(SpatialQuery):
-    def __init__(self,elem_num:int) -> None:
-        self.keys=ti.field(ti.u64,elem_num*2**dim)
+    def __init__(self,elem_num:int,collision_handler:'collision_handler.CollisionHandler') -> None:
+        self._collision_handler=collision_handler
+        self.item_num=elem_num*2**dim
+        self.dtype=tt.struct(idx=int,is_center=bool)
+        self.keys=ti.field(ti.u64,self.item_num)
         self._clear_keys()
-        self.ids=ti.field(int,elem_num*2**dim)
-        self.overlaps=ti.field(ti.u8)
-        self.overlaps_sparse_node=root.pointer(ti.ij,(elem_num,elem_num))
-        self.overlaps_sparse_node.place(self.overlaps)
+        self.values=self.dtype.field(shape=self.item_num)
+        self.center_idxs=ti.field(int,elem_num)
     @ti.func
-    def append(self,bound:BoundI,elem_idx:int,id:int):
-        for i in ti.static(ti.grouped(ti.ndrange((0,2),(0,2),(0,2)))):
-            if i.x<=bound.max.x and i.y<=bound.max.y and i.z<=bound.max.z:
-                idx=elem_idx+i.x*4+i.y*2+i.z
-                self.keys[idx]=get_morton(ti.Vector([i.x,i.y,i.z]))
-                self.ids[idx]=id
+    def append(self,bound:Bound,center:vec,idx:int):
+        boundi=bound.get_rounded()
+        centeri=tm.round(center,int)
+        for i,j,k in ti.static(ti.ndrange((0,2),(0,2),(0,2))):
+            if i<=boundi.max.x and j<=boundi.max.y and k<=boundi.max.z:
+                item_idx=idx*8+i*4+j*2+k
+                self.keys[item_idx]=get_morton(veci(i,j,k))
+                is_center=centeri.x==i and centeri.y==j and centeri.z==k
+                self.values[item_idx]=self.dtype(idx=idx,is_center=is_center)
     @ti.kernel
     def update_overlaps(self):
-        length=self.keys.shape[0]
-        for i in self.keys:
-            key_i=self.keys[i]
-            if key_i==ti.u64(morton_invalid):
-                continue
-            id_i=self.ids[i]
+        for i in self.values:
+            value=self.values[i]
+            if value.is_center:
+                self.center_idxs[value.idx]=i
+        for i in self.center_idxs:
+            item_idx=self.center_idxs[i]
+            value_i=self.values[item_idx]
+            key_i=self.keys[item_idx]
             j=i+1
-            while j<length:
+            step=1
+            while j>=0 and j<self.item_num:
                 key_j=self.keys[j]
                 if key_j!=key_i:
-                    break
-                id_j=self.ids[j]
-                self.overlaps[id_i,id_j]=ti.u8(1)
-                self.overlaps[id_j,id_i]=ti.u8(1)
+                    if step==1:
+                        j=i-1
+                        step=-1
+                        continue
+                    else:
+                        break
+                value_j=self.values[j]
+                self._collision_handler.on_query(value_i.idx,value_j.idx)
                 j+=1
     @ti.kernel
     def _clear_keys(self):
         self.keys.fill(ti.u64(morton_invalid))
     def clear(self):
         self._clear_keys()
-        self.overlaps_sparse_node.deactivate_all()
     def update(self):
-        ti.algorithms.parallel_sort(self.keys,self.ids)
+        ti.algorithms.parallel_sort(self.keys,self.values)
         self.update_overlaps()
         

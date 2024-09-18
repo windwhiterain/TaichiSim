@@ -1,3 +1,4 @@
+from turtle import Shape
 import taichi as ti
 import taichi.math as tm
 import taichi.types as tt
@@ -19,7 +20,7 @@ def is_adjacent(x:pairi,y:pairi):
 class Bound:
     min:vec
     max:vec
-    @ti.func
+    @ti.pyfunc
     def get_rounded(self,unit:float=1.0)->'BoundI':
         return BoundI(tm.round(self.min/unit,int),tm.round(self.max/unit,int))
     @ti.pyfunc
@@ -38,11 +39,26 @@ class BoundI:
     max:veci
 
 @ti.dataclass
+class Sphere:
+    center:vec
+    radius:float
+    @ti.pyfunc
+    def get_bound_box(self):
+        return Bound(self.center-vec(self.radius),self.center+vec(self.radius))
+    @ti.pyfunc
+    def get_scaled(self,scale:float)->'Sphere':
+        return Sphere(self.center,self.radius*scale)
+    @ti.pyfunc
+    def get_extended(self,distance:float)->'Sphere':
+        return Sphere(self.center,self.radius+distance)
+
+
+@ti.dataclass
 class Triangle:
     x:vec
     y:vec
     z:vec
-    @ti.func
+    @ti.pyfunc
     def get_bound(self)->'Bound':
         ret=Bound()
         for d in ti.static(range(dim)):
@@ -54,16 +70,19 @@ class Triangle:
 class Segment:
     x:vec
     y:vec
-    @ti.func
+    @ti.pyfunc
     def get_length(self):
         return (self.x-self.y).norm()
-    @ti.func
+    @ti.pyfunc
     def get_bound(self):
         ret=Bound()
         for d in ti.static(range(dim)):
             ret.min[d]=tm.min(self.x[d],self.y[d])
             ret.max[d]=tm.max(self.x[d],self.y[d])
         return ret
+    @ti.func
+    def get_bound_sphere(self)->Sphere:
+        return Sphere((self.x+self.y)/2,tm.length(self.x-self.y)/2)
 
 @ti.func
 def get_sphere_bound(center:vec,radius:float)->Bound:

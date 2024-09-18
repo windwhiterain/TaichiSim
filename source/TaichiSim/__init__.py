@@ -1,3 +1,4 @@
+from . import energy
 from .simulator import *
 from .solver import *
 
@@ -5,11 +6,11 @@ def test():
     time=0
     dt = 0.2
     pause = False
-    cloth = Simulator(N=19,k=8,bound=Bound(-vec(16),vec(16)),solver=DiagnalHessionSolver())
-    cloth.mask[0]=False
+    cloth = Simulator(N=19,k=16,bound=Bound(-vec(16),vec(16)),solver=DiagnalHessionSolver())
+    target_energy = energy.Target(cloth,1,1)
+    target_energy.indices[0]=0
+    cloth.energies.append(target_energy)
     rest_position=cloth.init_positions[0]
-    cloth.masses[0]=1024
-    cloth.update_M()
 
     #ui
     window = ti.ui.Window("Implicit Mass Spring System", res=(500, 500))
@@ -63,7 +64,7 @@ def test():
                 ti.profiler.print_kernel_profiler_info() 
 
         if not pause:
-            cloth.positions[0]=rest_position+vec(0,tm.sin(time/10),tm.cos(time/10))*0.2*min(time/6,1)
+            target_energy.positions[0]=rest_position+vec(0,tm.sin(time/10),tm.cos(time/10))*0.2*min(time/6,1)
             cloth.update(dt)
             time+=dt
 

@@ -10,14 +10,13 @@ class Simulator:
     require_dependencies={
         'M':[],
         'gradiants':[],
-        'hessions':[],
-        'H':['hessions'],
+        'hession':[],
+        'H':['hession'],
     }
     def __init__(self,N:int,k:float,bound:Bound,solver:'solver.Solver') -> None:
         self.bound=bound
         self.max_displace_length=1/N/4
-        self.safe_distance=self.max_displace_length/3
-        self.max_edge_length=2/N
+        self.max_radius=2/N
         #geometry
         self.create_geometry(N)
 
@@ -40,10 +39,13 @@ class Simulator:
         self.velocities.fill(vec(0))
         
         #simulate
+        self.energies=[]
         self.prev_positions=ti.field(vec,self.NV)
         self.constrainted_positions=ti.field(vec,self.NV)
         self.gradiants=ti.field(vec,self.NV)
-        self.hessions=ti.field(mat,self.NE)
+        self.string_hessions=ti.field(mat,self.NE)
+        self.hession=ti.field(mat)
+        self._hession_sparse=root.pointer(ti.ij,(self.NV,self.NV)).place(self.hession)
         self.H_builder=SparseMatrixBuilder(dim * self.NV, dim * self.NV, max_num_triplets=self.NE*dim**2*4) 
         self.b=ti.ndarray(float,dim*self.NV)
         self.step=4
@@ -54,10 +56,10 @@ class Simulator:
         self.solve_requrie_dependency(solver.get_requires())
 
         #constraint
-        self.max_edge_length_constraint=constraint.MaxLength(self.max_edge_length,self.edges,self.constrainted_positions,self.masses)
+        self.max_edge_length_constraint=constraint.MaxLength(self.max_radius,self.edges,self.constrainted_positions,self.masses)
 
         #collision
-        self.collision_handler=collision_handler.CollisionHandler(3**(1/3)*self.max_edge_length,self)
+        self.collision_handler=collision_handler.CollisionHandler(0,self)
         
     def solve_requrie_dependency(self,requires:list[str]):
         self.requires=requires
@@ -148,14 +150,30 @@ class Simulator:
             self.gradiants[edge[1]]+=gradiant
 
     @ti.kernel
-    def update_hessions(self):
+    def update_string_hessions(self):
         for E in self.edges:
             edge_vec=self.get_edge_vec(self.constrainted_positions,E)
             len=edge_vec.norm()
             rest_len=self.rest_lens[E]
             k=self.elasticities[E]
             outer_product=edge_vec.outer_product(edge_vec)
-            self.hessions[E]=k*(outer_product/(len)**2+rest_len/len*(ti.Matrix.identity(float,dim)-outer_product/len**2))
+            self.string_hessions[E]=k*(outer_product/(len)**2+rest_len/len*(ti.Matrix.identity(float,dim)-outer_product/len**2))
+
+    def update_hession(self):
+        self._hession_sparse.deactivate_all()
+        self._update_hession()
+        for energy in self.energies:
+            energy.update_hession()
+        
+    @ti.kernel
+    def _update_hession(self):
+        for E in self.edges:
+            edge=self.edges[E]
+            string_hession=self.string_hessions[E]
+            self.hession[edge[0],edge[0]]+=string_hession
+            self.hession[edge[1],edge[1]]+=string_hession
+            self.hession[edge[0],edge[1]]-=string_hession
+            self.hession[edge[1],edge[0]]-=string_hession
     
 
     def update_H(self):
@@ -163,14 +181,9 @@ class Simulator:
         self.H=self.H_builder.build()
     @ti.kernel
     def _update_H(self,builder:ti.types.sparse_matrix_builder()):
-        for E in self.edges:
-            edge=self.edges[E]
-            hession=self.hessions[E]
+        for i,j in self._hession_sparse:
             for n,m in ti.static(ti.ndrange(dim,dim)):
-                builder[edge[0]*dim+n,edge[0]*dim+m]+=hession[n,m]
-                builder[edge[1]*dim+n,edge[1]*dim+m]+=hession[n,m]
-                builder[edge[0]*dim+n,edge[1]*dim+m]-=hession[n,m]
-                builder[edge[1]*dim+n,edge[0]*dim+m]-=hession[n,m]
+                builder[i*dim+n,j*dim+j]+=self.hession[i,j][n,m]
 
     @ti.kernel
     def apply_velocity(self,dt:float):
@@ -199,14 +212,21 @@ class Simulator:
         for _ in range(self.step):
             if 'gradiants' in self.requires:
                 self.update_gradiant()
-            if 'hessions' in self.requires:
-                self.update_hessions()
+                for energy in self.energies:
+                    energy.update_gradiants()
+            if 'hession' in self.requires:
+                self.update_string_hessions()
+                self.update_hession()
             if 'H' in self.requires:
                 self.update_H()
             self.solver.temp_step()
         self.solver.end_step()
 
+
+
         self.collision_handler.update()
+
+        
         self.collision_handler.step()
         self.update_single_constraint(self.max_edge_length_constraint,2,0)
 

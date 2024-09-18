@@ -15,8 +15,7 @@ class SpatialQuery(ABC):
 
 @ti.data_oriented
 class Grid(SpatialQuery):
-    def __init__(self,elem_num:int,collision_handler:'collision_handler.CollisionHandler') -> None:
-        self._collision_handler=collision_handler
+    def __init__(self,elem_num:int) -> None:
         self.item_num=elem_num*2**dim
         self.dtype=tt.struct(idx=int,is_center=bool)
         self.keys=ti.field(ti.u64,self.item_num)
@@ -55,14 +54,15 @@ class Grid(SpatialQuery):
                     else:
                         break
                 value_j=self.values[j]
-                self._collision_handler.on_query(value_i.idx,value_j.idx)
+                self.collistion_action.on_query(value_i.idx,value_j.idx)
                 j+=1
     @ti.kernel
     def _clear_keys(self):
         self.keys.fill(ti.u64(morton_invalid))
     def clear(self):
         self._clear_keys()
-    def update(self):
+    def update(self,collistion_action:'collision_handler.CollisionAction'):
+        self.collistion_action=collistion_action
         ti.algorithms.parallel_sort(self.keys,self.values)
         self.update_overlaps()
         

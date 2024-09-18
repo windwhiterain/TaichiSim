@@ -77,20 +77,16 @@ class DiagnalHessionSolver(Solver):
     def _fit(self):
         self.diag_hession=ti.field(vec,self.simulator.NV)
     def get_requires(self) -> list[str]:
-        return ['hessions','gradiants']
+        return ['hession','gradiants']
     def temp_step(self):
         self.update_diag_hession()
         self.update_temp_position()
     #
     @ti.kernel
     def update_diag_hession(self):
-        self.diag_hession.fill(vec(0))
-        for E in range(self.simulator.NE):
-            edge=self.simulator.edges[E]
-            hession=self.simulator.hessions[E]
+        for V in range(self.simulator.NV):
             for d in ti.static(range(dim)):
-                self.diag_hession[edge[0]][d]+=hession[d,d]
-                self.diag_hession[edge[1]][d]+=hession[d,d]
+                self.diag_hession[V][d]=self.simulator.hession[V,V][d,d]
 
     @ti.kernel
     def update_temp_position(self):

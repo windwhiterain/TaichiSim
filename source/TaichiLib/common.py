@@ -104,7 +104,7 @@ def get_distance_segment(segment_x:Segment,segment_y:Segment)->float:
     ret=0.
     vector_x=segment_x.get_vector()
     vector_y=segment_y.get_vector()
-    if (tm.cross(vector_x,vector_y)<=vec(epsilon)).all():
+    if (ti.abs(tm.cross(vector_x,vector_y))<=vec(epsilon)).all():
         param_yx=tm.dot(segment_y.x-segment_x.x,vector_x)
         param_yy=tm.dot(segment_y.y-segment_x.x,vector_x)
         if param_yx>1 and param_yy>1:

@@ -10,7 +10,7 @@ pairi=tt.vector(2,int)
 mat=tt.matrix(dim,dim,float)
 up=vec(0,0,1)
 root:ti.SNode=ti.root
-epsilon=1e-16
+epsilon=1e-8
 
 @ti.pyfunc
 def remove_component(self:vec,component:vec)->vec:

@@ -1,4 +1,5 @@
 from TaichiLib import *
+from TaichiLib.linq import Linq
 from . import spatial_query
 from . import simulator
 from .constraint import Constraint, MaxLength, update_constraints
@@ -20,6 +21,9 @@ class MaxDisplace(CollisionAction,Constraint):
         self.simulator=handler.simulator
         self.max_displaces=ti.field(float,self.simulator.NV)
         self.loss=ti.field(int,())
+
+        self.t=ti.field(int,self.simulator.NE)
+        self.t.fill(0)
     def begin_update(self):
         self.max_displaces.fill(self.simulator.max_displace)
     @ti.func
@@ -32,11 +36,8 @@ class MaxDisplace(CollisionAction,Constraint):
             segment_y=simulator.get_edge_segment(simulator.prev_positions,idx_other)
             distance=get_distance_segment(segment_x,segment_y)
             displace=tm.max(0,distance-self.handler.min_distance)/2
-            # if displace<self.simulator.max_displace:
-            #     print(edge_center,edge_other)
-            #     print(segment_x.x,segment_x.y,segment_y.x,segment_y.y)
-            self.max_displaces[edge_center.x]=tm.min(self.max_displaces[edge_center.x],displace)
-            self.max_displaces[edge_center.y]=tm.min(self.max_displaces[edge_center.y],displace)
+            ti.atomic_min(self.max_displaces[edge_center.x],displace)
+            ti.atomic_min(self.max_displaces[edge_center.y],displace)
     def step(self,update_loss:bool):
         self._step(update_loss)
     @ti.kernel
@@ -101,6 +102,5 @@ class CollisionHandler:
         self.points_query.clear()
         self.append_segments()
         self.points_query.update(self.max_displace_constraint)
-        #print(self.max_displace_constraint.max_displaces)
     def step(self):
         update_constraints([self.max_displace_constraint],2,0)

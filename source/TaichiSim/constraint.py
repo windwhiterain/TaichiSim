@@ -63,8 +63,8 @@ class MaxLength(Constraint):
             delta_length=tm.max(0,length-self.max_length)
             if delta_length>0:
                 delta_length=length-self.max_length*self.tightness
-                self._delta_position[edge.x]+=delta_length*mass_y/(mass_x+mass_y)*direction
-                self._delta_position[edge.y]-=delta_length*mass_x/(mass_x+mass_y)*direction
+                ti.atomic_add(self._delta_position[edge.x],delta_length*mass_y/(mass_x+mass_y)*direction)
+                ti.atomic_sub(self._delta_position[edge.y],delta_length*mass_x/(mass_x+mass_y)*direction)
                 if update_loss:
                     self.loss[None]=tm.max(self.loss[None],1)
         if not update_loss:

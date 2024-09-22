@@ -5,7 +5,7 @@ TaichiSim.test()
 
 # @ti.kernel
 # def test_segment_distance():
-#     sample0=(Segment(vec(-2,0,0),vec(-1,0,0)),Segment(vec(0,1,1),vec(0,2,1)))
+#     sample0=(Segment(vec(-0.13,0,-0.28),vec(-0.07,0,-0.33)),Segment(vec(-0.13,0,-0.33),vec(-0.07,0,-0.28)))
 #     sample1=(Segment(vec(-1,0,0),vec(0,0,0)),Segment(vec(1,0,1),vec(2,0,1)))
 #     line_dis0=get_distance_line(sample0[0],sample0[1])
 #     seg_dis0=get_distance_segment(sample0[0],sample0[1])

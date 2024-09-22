@@ -1,16 +1,5 @@
-from turtle import Shape
-import taichi as ti
-import taichi.math as tm
-import taichi.types as tt
-
-dim=3
-vec=tt.vector(dim,float)
-veci=tt.vector(dim,int)
-pair=tt.vector(2,float)
-pairi=tt.vector(2,int)
-mat=tt.matrix(dim,dim,float)
-up=vec(0,0,1)
-root:ti.SNode=ti.root
+from os import remove
+from .math import *
 
 @ti.func
 def is_adjacent(x:pairi,y:pairi):
@@ -80,9 +69,12 @@ class Segment:
             ret.min[d]=tm.min(self.x[d],self.y[d])
             ret.max[d]=tm.max(self.x[d],self.y[d])
         return ret
-    @ti.func
+    @ti.pyfunc
     def get_bound_sphere(self)->Sphere:
         return Sphere((self.x+self.y)/2,tm.length(self.x-self.y)/2)
+    @ti.pyfunc
+    def get_vector(self)->vec:
+        return self.y-self.x
 
 @ti.func
 def get_sphere_bound(center:vec,radius:float)->Bound:
@@ -107,19 +99,32 @@ def get_distance_line(line_x:Segment,line_y:Segment)->tt.struct(parameter=pair,d
     parameter_y=tm.dot(line_x.x-line_y.x,n_x)/tm.dot(vector_y,n_x)
     return ti.Struct(parameter=pair(parameter_x,parameter_y),distance=((line_x.x+parameter_x*vector_x)-(line_y.x+parameter_y*vector_y)).norm())
 
-@ti.func
+@ti.pyfunc
 def get_distance_segment(segment_x:Segment,segment_y:Segment)->float:
-    distance_line=get_distance_line(segment_x,segment_y)
     ret=0.
-    if distance_line.parameter.x>=0 and distance_line.parameter.x<=1 and distance_line.parameter.y>=0 and distance_line.parameter.y<=1:
-        ret=distance_line.distance
+    vector_x=segment_x.get_vector()
+    vector_y=segment_y.get_vector()
+    if (tm.cross(vector_x,vector_y)<=vec(epsilon)).all():
+        param_yx=tm.dot(segment_y.x-segment_x.x,vector_x)
+        param_yy=tm.dot(segment_y.y-segment_x.x,vector_x)
+        if param_yx>1 and param_yy>1:
+            ret=((segment_y.x if param_yx<param_yy else segment_y.y)-segment_x.y).norm()
+        elif param_yx<0 and param_yy<0:
+            ret=((segment_y.x if param_yx>param_yy else segment_y.y)-segment_x.x).norm()
+        else:
+            ret=remove_component(segment_y.x-segment_x.x,vector_x).norm()
     else:
-        ret=tm.min(
-            get_distance_point_segment(segment_x.x,segment_y).distance,
-            get_distance_point_segment(segment_x.y,segment_y).distance,
-            get_distance_point_segment(segment_y.x,segment_x).distance,
-            get_distance_point_segment(segment_y.x,segment_x).distance
-        )
+        distance_line=get_distance_line(segment_x,segment_y)
+        
+        if distance_line.parameter.x>=0 and distance_line.parameter.x<=1 and distance_line.parameter.y>=0 and distance_line.parameter.y<=1:
+            ret=distance_line.distance
+        else:
+            ret=tm.min(
+                get_distance_point_segment(segment_x.x,segment_y).distance,
+                get_distance_point_segment(segment_x.y,segment_y).distance,
+                get_distance_point_segment(segment_y.x,segment_x).distance,
+                get_distance_point_segment(segment_y.x,segment_x).distance
+            )
     return ret
 
 

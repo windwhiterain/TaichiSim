@@ -64,7 +64,7 @@ def test():
                 ti.profiler.print_kernel_profiler_info() 
 
         if not pause:
-            target_energy.positions[0]=rest_position+vec(0,tm.sin(time/10),tm.cos(time/10))*0.2*min(time/6,1)
+            target_energy.positions[0]=rest_position#+vec(0,tm.sin(time/10),tm.cos(time/10))*0.2*min(time/6,1)
             cloth.update(dt)
             time+=dt
 

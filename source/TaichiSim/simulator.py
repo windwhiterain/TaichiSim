@@ -15,7 +15,7 @@ class Simulator:
     }
     def __init__(self,N:int,k:float,bound:Bound,solver:'solver.Solver') -> None:
         self.bound=bound
-        self.max_displace_length=1/N/4
+        self.max_displace=1/N/4
         self.max_radius=2/N
         #geometry
         self.create_geometry(N)
@@ -54,9 +54,6 @@ class Simulator:
         self.solver=solver
         self.solver.fit(self)
         self.solve_requrie_dependency(solver.get_requires())
-
-        #constraint
-        self.max_edge_length_constraint=constraint.MaxLength(self.max_radius,self.edges,self.constrainted_positions,self.masses)
 
         #collision
         self.collision_handler=collision_handler.CollisionHandler(0,self)
@@ -228,7 +225,6 @@ class Simulator:
 
         
         self.collision_handler.step()
-        self.update_single_constraint(self.max_edge_length_constraint,2,0)
 
         self.update_velocity(dt)
         self.apply_temp_position()
@@ -245,13 +241,4 @@ class Simulator:
     def get_edge_segment(self,positions:ti.template(),E:int) -> Segment:
         return Segment(self.positions[self.edges[E][0]],self.positions[self.edges[E][1]])
     
-    def update_single_constraint(self,constrain:'constraint.Constraint',group_num:int,max_loss):
-        constrain.step(True)
-        if constrain.get_loss()<=max_loss:
-            return
-        while True:
-            for iteration in range(group_num-1):
-                constrain.step(False) 
-            constrain.step(True)
-            if constrain.get_loss()<=max_loss:
-                break
+    

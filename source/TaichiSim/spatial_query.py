@@ -23,14 +23,16 @@ class Grid(SpatialQuery):
         self.values=self.dtype.field(shape=self.item_num)
         self.center_idxs=ti.field(int,elem_num)
     @ti.func
-    def append(self,bound:Bound,center:vec,idx:int):
+    def append(self,bound:Bound,center:veci,idx:int):
         boundi=bound.get_rounded()
         centeri=tm.round(center,int)
         for i,j,k in ti.static(ti.ndrange((0,2),(0,2),(0,2))):
-            if i<=boundi.max.x and j<=boundi.max.y and k<=boundi.max.z:
-                item_idx=idx*8+i*4+j*2+k
-                self.keys[item_idx]=get_morton(veci(i,j,k))
-                is_center=centeri.x==i and centeri.y==j and centeri.z==k
+            I=veci(i,j,k)
+            I+=boundi.min
+            if I.x<=boundi.max.x and I.y<=boundi.max.y and I.z<=boundi.max.z:
+                item_idx=idx*8+i*4+i*2+k
+                self.keys[item_idx]=get_morton(I)
+                is_center=(centeri==I).all()
                 self.values[item_idx]=self.dtype(idx=idx,is_center=is_center)
     @ti.kernel
     def update_overlaps(self):
@@ -38,6 +40,7 @@ class Grid(SpatialQuery):
             value=self.values[i]
             if value.is_center:
                 self.center_idxs[value.idx]=i
+        
         for i in self.center_idxs:
             item_idx=self.center_idxs[i]
             value_i=self.values[item_idx]

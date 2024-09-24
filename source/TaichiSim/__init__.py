@@ -1,3 +1,4 @@
+from . import pcg
 from . import energy
 from .simulator import *
 from .solver import *
@@ -6,11 +7,15 @@ def test():
     time=0
     dt = 0.2
     pause = False
-    cloth = Simulator(N=19,k=16,bound=Bound(-vec(16),vec(16)),solver=DiagnalHessionSolver())
-    target_energy = energy.Target(cloth,1,1)
+    grid = pcg.Grid(Box2(pair(-1),pair(1)),pairi(19))
+    grid.string_energy.scale=16
+    cloth = Simulator(Bound(-vec(16),vec(16)),DiagnalHessionSolver(),grid.geometry)
+    cloth.energies.append(grid.string_energy)
+
+    target_energy = energy.Target(1,1)
     target_energy.indices[0]=0
     cloth.energies.append(target_energy)
-    rest_position=cloth.init_positions[0]
+    rest_position=cloth.geometry.positions[0]
 
     #ui
     window = ti.ui.Window("Implicit Mass Spring System", res=(500, 500))
@@ -64,14 +69,16 @@ def test():
                 ti.profiler.print_kernel_profiler_info() 
 
         if not pause:
-            target_energy.positions[0]=rest_position#+vec(0,tm.sin(time/10),tm.cos(time/10))*0.2*min(time/6,1)
+            target_energy.positions[0]=rest_position+vec(0,tm.sin(time/10),tm.cos(time/10))*0.2*min(time/6,1)
             cloth.update(dt)
             time+=dt
 
         camera.position(camera_position.x,camera_position.y,camera_position.z)
         scene.set_camera(camera)
         scene.point_light(pos=camera_position, color=(1, 1, 1))
-        cloth.displayGGUI(scene)
+        scene.mesh(vertices=cloth.positions,indices=cloth.geometry.indices,color=(1,1,1),two_sided=True)
+        scene.particles(cloth.positions, 0.02, color=(1,1,1))
+        scene.lines(cloth.positions,indices=grid.string_energy.indices,color=(0,0,1),width=1)
         canvas.scene(scene)
         
 

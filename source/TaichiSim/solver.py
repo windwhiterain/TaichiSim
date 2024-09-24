@@ -24,7 +24,7 @@ class NewtonRaphsonSolver(Solver):
         super().__init__()    
     #impl Solver
     def _fit(self):
-        self.b=ti.ndarray(float,dim*self.simulator.NV)
+        self.b=ti.ndarray(float,dim*self.simulator.geometry.num_point)
     def get_requires(self):
         return ['M','gradiants','H']
     def _begin_step(self):
@@ -44,14 +44,14 @@ class NewtonRaphsonSolver(Solver):
         self._update_b(dt,self.b)
     @ti.kernel
     def _update_b(self,dt:float,b:tt.ndarray()):
-        for V in range(self.simulator.NV):
-            mass=self.simulator.masses[V]
+        for V in range(self.simulator.geometry.num_point):
+            mass=self.simulator.geometry.masses[V]
             for d in ti.static(range(dim)):
                 b[dim*V+d]=-mass*(self.simulator.constrainted_positions[V][d]-self.simulator.positions[V][d])/dt-self.simulator.gradiants[V][d]
 
     @ti.kernel
     def update_temp_position(self,d_position:tt.ndarray()):
-        for V in range(self.simulator.NV):
+        for V in range(self.simulator.geometry.num_point):
             if self.simulator.mask[V]:
                 for d in ti.static(range(dim)):
                     self.simulator.constrainted_positions[V][d]+=d_position[dim*V+d]
@@ -75,7 +75,7 @@ class DiagnalHessionSolver(Solver):
         super().__init__()
     #impl Solver
     def _fit(self):
-        self.diag_hession=ti.field(vec,self.simulator.NV)
+        self.diag_hession=ti.field(vec,self.simulator.geometry.num_point)
     def get_requires(self) -> list[str]:
         return ['hession','gradiants']
     def temp_step(self):
@@ -84,14 +84,14 @@ class DiagnalHessionSolver(Solver):
     #
     @ti.kernel
     def update_diag_hession(self):
-        for V in range(self.simulator.NV):
+        for V in range(self.simulator.geometry.num_point):
             for d in ti.static(range(dim)):
                 self.diag_hession[V][d]=self.simulator.hession[V,V][d,d]
 
     @ti.kernel
     def update_temp_position(self):
-        for V in range(self.simulator.NV):
+        for V in range(self.simulator.geometry.num_point):
             if self.simulator.mask[V]:
-                mass=self.simulator.masses[V]
+                mass=self.simulator.geometry.masses[V]
                 temp_position=self.simulator.constrainted_positions[V]
                 self.simulator.constrainted_positions[V]+=(-mass*(temp_position-self.simulator.positions[V])/self.dt**2-self.simulator.gradiants[V])/(mass/self.dt**2+self.diag_hession[V])

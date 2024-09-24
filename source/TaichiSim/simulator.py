@@ -1,9 +1,12 @@
+from numpy import indices
 from taichi.lang.struct import Struct
 from taichi.linalg import SparseMatrixBuilder
 from TaichiLib import *
+from . import energy
 from . import solver 
 from . import collision_handler
 from . import constraint
+from . import geometry
 
 @ti.data_oriented
 class Simulator:
@@ -13,41 +16,34 @@ class Simulator:
         'hession':[],
         'H':['hession'],
     }
-    def __init__(self,N:int,k:float,bound:Bound,solver:'solver.Solver') -> None:
+    def __init__(self,bound:Bound,solver:'solver.Solver',geometry:'geometry.Geometry') -> None:
         self.bound=bound
-        self.max_displace=1/N/4
-        self.max_radius=2/N
-        #geometry
-        self.create_geometry(N)
+        self.max_displace=1/(2/19)/4
+        self.max_radius=2/(2/19)
+        self.geometry=geometry
 
         #attribute
-        self.elasticities=ti.field(float,self.NE)
-        self.elasticities.fill(k)
-        
-        self.masses=ti.field(float,self.NV)
-        self.masses.fill(1)
-        self.M_builder=SparseMatrixBuilder(dim * self.NV, dim * self.NV, max_num_triplets=self.NV*dim)
+        self.M_builder=SparseMatrixBuilder(dim * self.geometry.num_point, dim * self.geometry.num_point, max_num_triplets=self.geometry.num_point*dim)
         self.update_M()
 
-        self.mask=ti.field(bool,self.NV)
+        self.mask=ti.field(bool,self.geometry.num_point)
         self.mask.fill(True)
 
         #state
-        self.positions=ti.field(vec,self.NV)
-        self.positions.copy_from(self.init_positions)
-        self.velocities=ti.field(vec,self.NV)
+        self.positions=ti.field(vec,geometry.num_point)
+        self.positions.copy_from(self.geometry.positions)
+        self.velocities=ti.field(vec,geometry.num_point)
         self.velocities.fill(vec(0))
         
         #simulate
-        self.energies=[]
-        self.prev_positions=ti.field(vec,self.NV)
-        self.constrainted_positions=ti.field(vec,self.NV)
-        self.gradiants=ti.field(vec,self.NV)
-        self.string_hessions=ti.field(mat,self.NE)
+        self.energies=list['energy.Energy']()
+        self.prev_positions=ti.field(vec,self.geometry.num_point)
+        self.constrainted_positions=ti.field(vec,self.geometry.num_point)
+        self.gradiants=ti.field(vec,self.geometry.num_point)
         self.hession=ti.field(mat)
-        self._hession_sparse=root.pointer(ti.ij,(self.NV,self.NV)).place(self.hession)
-        self.H_builder=SparseMatrixBuilder(dim * self.NV, dim * self.NV, max_num_triplets=self.NE*dim**2*4) 
-        self.b=ti.ndarray(float,dim*self.NV)
+        self._hession_sparse=root.pointer(ti.ij,(self.geometry.num_point,self.geometry.num_point)).place(self.hession)
+        self.H_builder=SparseMatrixBuilder(dim * self.geometry.num_point, dim * self.geometry.num_point, max_num_triplets=(self.geometry.num_point*dim)**2) 
+        self.b=ti.ndarray(float,dim*self.geometry.num_point)
         self.step=4
 
         #solver
@@ -67,15 +63,8 @@ class Simulator:
                     self.requires.append(dependency)
 
     def create_geometry(self,N:int):
-        self.N=N
-        self.NV = (N + 1) ** 2  # number of vertices
-        self.NE = 2 * N * (N + 1) + 2 * N * N  # numbser of edges
-        self.init_positions=ti.field(vec,self.NV)
-        self.edges=ti.field(pairi,(self.NE))
-        self.indices=ti.field(int,self.NE*2)
-        self.rest_lens=ti.field(float,self.NE)
-        self._create_geometry()
-
+        self.positions=ti.field(vec,self.geometry.num_point)
+        self.positions.copy_from(self.geometry.positions)
         
     @ti.kernel
     def _create_geometry(self):
@@ -129,9 +118,9 @@ class Simulator:
     
     @ti.kernel
     def _create_M(self,builder:ti.types.sparse_matrix_builder()):
-        for V in self.masses:
+        for V in self.geometry.masses:
             for d in ti.static(range(dim)):
-                builder[V*dim+d,V*dim+d]+=self.masses[V]
+                builder[V*dim+d,V*dim+d]+=self.geometry.masses[V]
                 
     @ti.kernel
     def update_gradiant(self):
@@ -158,7 +147,6 @@ class Simulator:
 
     def update_hession(self):
         self._hession_sparse.deactivate_all()
-        self._update_hession()
         for energy in self.energies:
             energy.update_hession()
         
@@ -184,19 +172,19 @@ class Simulator:
 
     @ti.kernel
     def apply_velocity(self,dt:float):
-        for V in range(self.NV):
+        for V in range(self.geometry.num_point):
             if self.mask[V]:
                 self.positions[V]+=self.velocities[V]*dt
 
     @ti.kernel
     def apply_temp_position(self):
-        for V in range(self.NV):
+        for V in range(self.geometry.num_point):
             if self.mask[V]:
                 self.positions[V]=self.constrainted_positions[V]
 
     @ti.kernel
     def update_velocity(self,dt:float):
-        for V in range(self.NV):
+        for V in range(self.geometry.num_point):
             if self.mask[V]:
                 self.velocities[V]+=(self.constrainted_positions[V]-self.positions[V])/dt
 
@@ -208,11 +196,11 @@ class Simulator:
         self.solver.begin_step(dt)
         for _ in range(self.step):
             if 'gradiants' in self.requires:
-                self.update_gradiant()
+                self.gradiants.fill(vec(0))
                 for energy in self.energies:
+                    energy.simulator=self
                     energy.update_gradiants()
             if 'hession' in self.requires:
-                self.update_string_hessions()
                 self.update_hession()
             if 'H' in self.requires:
                 self.update_H()
@@ -221,19 +209,14 @@ class Simulator:
 
 
 
-        self.collision_handler.update()
+        #self.collision_handler.update()
 
         
-        self.collision_handler.step()
+        #self.collision_handler.step()
 
         self.update_velocity(dt)
         self.apply_temp_position()
-
-
-
-    def displayGGUI(self, scene:ti.ui.Scene, radius=0.02, color=(1.0, 1.0, 1.0)):
-        scene.lines(self.positions, width=1, indices=self.indices, color=(1, 1, 1))
-        scene.particles(self.positions, radius, color)
+     
     @ti.func
     def get_edge_vec(self,positions:ti.template(),E:int):
         return self.positions[self.edges[E][1]]-positions[self.edges[E][0]]

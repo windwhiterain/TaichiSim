@@ -19,18 +19,18 @@ class MaxDisplace(CollisionAction,Constraint):
     def __init__(self, handler: 'CollisionHandler') -> None:
         CollisionAction.__init__(self,handler)
         self.simulator=handler.simulator
-        self.max_displaces=ti.field(float,self.simulator.NV)
+        self.max_displaces=ti.field(float,self.simulator.geometry.num_edge)
         self.loss=ti.field(int,())
 
-        self.t=ti.field(int,self.simulator.NE)
+        self.t=ti.field(int,self.simulator.geometry.num_edge)
         self.t.fill(0)
     def begin_update(self):
         self.max_displaces.fill(self.simulator.max_displace)
     @ti.func
     def on_query(self,idx_center:int,idx_other:int):
         simulator=self.handler.simulator
-        edge_center=simulator.edges[idx_center]
-        edge_other=simulator.edges[idx_other]
+        edge_center=simulator.geometry.edges[idx_center]
+        edge_other=simulator.geometry.edges[idx_other]
         if not is_adjacent(edge_center,edge_other):
             segment_x=simulator.get_edge_segment(simulator.prev_positions,idx_center)
             segment_y=simulator.get_edge_segment(simulator.prev_positions,idx_other)
@@ -67,8 +67,8 @@ class MinSegmentDistance(CollisionAction):
     def on_query(self, idx_center: int, idx_other: int):
         handler=self.handler
         simulator=self.handler.simulator
-        edge_center=simulator.edges[idx_center]
-        edge_other=simulator.edges[idx_other]
+        edge_center=simulator.geometry.edges[idx_center]
+        edge_other=simulator.geometry.edges[idx_other]
 
 @ti.data_oriented
 class CollisionHandler:
@@ -76,10 +76,10 @@ class CollisionHandler:
         self.min_distance=min_distance
         self.simulator=simulator
         self.unit=2*(simulator.max_radius+simulator.max_displace+self.min_distance/2)*tm.sqrt(2)
-        self.points_query=spatial_query.Grid(self.simulator.NE)
+        self.points_query=spatial_query.Grid(self.simulator.geometry.num_edge)
         self.max_displace_constraint=MaxDisplace(self)
         self.max_displace_constraint.set_tightness(0.9)
-        self.max_edge_length_constraint=MaxLength(self.simulator.max_radius,self.simulator.edges,self.simulator.constrainted_positions,self.simulator.masses)
+        self.max_edge_length_constraint=MaxLength(self.simulator.max_radius,self.simulator.geometry.edges,self.simulator.constrainted_positions,self.simulator.geometry.masses)
         self.max_edge_length_constraint.set_tightness(0.9)
     @ti.func
     def vec_into_space(self,point:vec)->vec:
@@ -89,7 +89,7 @@ class CollisionHandler:
         return Bound(self.vec_into_space(bound.min),self.vec_into_space(bound.max))
     @ti.kernel
     def append_segments(self):
-        for i in self.simulator.edges:
+        for i in self.simulator.geometry.edges:
             segment=self.simulator.get_edge_segment(self.simulator.prev_positions,i)
             bound=self.bound_into_space(segment.get_bound_sphere().get_extended(self.simulator.max_displace+self.min_distance/2).get_scaled(tm.sqrt(2)).get_bound_box())
             self.points_query.append(bound,bound.get_center(),i)

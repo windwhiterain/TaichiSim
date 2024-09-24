@@ -17,5 +17,13 @@ TaichiSim.test()
 #     print(seg_dis1)
 # test_segment_distance()
 
+# @ti.func
+# def diag()->int:
+#     return 2
+# mat.diag=diag
+# @ti.kernel
+# def a()->int:
+#     return mat.diag()
 
+# print(a())
 

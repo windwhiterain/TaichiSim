@@ -5,6 +5,22 @@ from .math import *
 def is_adjacent(x:pairi,y:pairi):
     return x.x==y.x or x.x==y.y or x.y==y.x or x.y==y.y
 
+@ti.pyfunc
+def flatten_idx2(idx:pairi,shape:pairi)->int:
+    return idx.x*shape.y+idx.y
+
+@ti.pyfunc
+def flatten_idx3(idx:veci,shape:veci)->int:
+    return idx.x*shape.y*shape.z+idx.y*shape.z+idx.z
+
+@ti.pyfunc
+def x0y(_:pair)->vec:
+    return vec(_.x,0,_.y)
+
+@ti.pyfunc
+def lerp(x:ti.template(),y:ti.template(),f:float)->ti.template():
+    return x*(1-f)+y*f
+
 @ti.dataclass
 class Bound:
     min:vec
@@ -21,11 +37,25 @@ class Bound:
     @ti.pyfunc
     def get_extended(self,distance:float)->'Bound':
         return Bound(self.min-vec(distance),self.max+vec(distance))
+    
+@ti.dataclass
+class Box2:
+    min:pair
+    max:pair
 
 @ti.dataclass
 class BoundI:
     min:veci
     max:veci
+
+
+@ti.dataclass
+class BoxI2:
+    min:pairi
+    max:pairi
+    @ti.pyfunc
+    def size(self)->veci:
+        return self.max-self.min+pairi(1)
 
 @ti.dataclass
 class Sphere:

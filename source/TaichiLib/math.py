@@ -8,6 +8,10 @@ veci=tt.vector(dim,int)
 pair=tt.vector(2,float)
 pairi=tt.vector(2,int)
 mat=tt.matrix(dim,dim,float)
+@ti.pyfunc
+def mat_identity()->mat:
+    return ti.Matrix.identity(float,dim)
+mat.identity=mat_identity
 up=vec(0,0,1)
 root:ti.SNode=ti.root
 epsilon=1e-8

@@ -9,7 +9,8 @@ class Constraint(ABC):
     @abstractmethod
     def get_loss(self):pass
 
-def update_constraints(constraints:list[Constraint],group_num:int,max_loss):
+def update_constraints(constraints:list[Constraint],group_num:int,max_loss,max_iteration:int=16):
+    iteration=0
     def check_round()->bool:
         ret=True
         for constraint in constraints:
@@ -18,15 +19,18 @@ def update_constraints(constraints:list[Constraint],group_num:int,max_loss):
                 ret=False
         return ret
     def uncheck_round(round_num:int):
-        for iteration in range(round_num):
+        nonlocal iteration
+        for i in range(round_num):
             for constraint in constraints:
                 constraint.step(False)
+            iteration+=1
     if check_round():
         return
-    while True:
+    while iteration<max_iteration:
         uncheck_round(group_num)
         if check_round():
             return
+    print("constraint failed to satisfied")
 
 
 @ti.data_oriented

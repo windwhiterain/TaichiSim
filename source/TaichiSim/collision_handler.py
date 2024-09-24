@@ -45,7 +45,7 @@ class MaxDisplace(CollisionAction,Constraint):
         st_update_loss=ti.static(update_loss)
         if st_update_loss:
             self.loss[None]=0
-        for V in range(self.simulator.NV):
+        for V in range(self.simulator.geometry.num_point):
             target_position=self.simulator.constrainted_positions[V]
             prev_position=self.simulator.prev_positions[V]
             target_length=(target_position-prev_position).norm()

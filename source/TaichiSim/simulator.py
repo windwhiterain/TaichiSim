@@ -19,7 +19,7 @@ class Simulator:
     def __init__(self,bound:Bound,solver:'solver.Solver',geometry:'geometry.Geometry') -> None:
         self.bound=bound
         self.max_displace=1/(2/19)/4
-        self.max_radius=2/(2/19)
+        self.max_radius=4*(2/19)
         self.geometry=geometry
 
         #attribute
@@ -52,7 +52,7 @@ class Simulator:
         self.solve_requrie_dependency(solver.get_requires())
 
         #collision
-        self.collision_handler=collision_handler.CollisionHandler(0,self)
+        self.collision_handler=collision_handler.CollisionHandler((2/19)*0.3,(2/19)*0.1,self)
         
     def solve_requrie_dependency(self,requires:list[str]):
         self.requires=requires
@@ -137,8 +137,8 @@ class Simulator:
         self.apply_temp_position()
      
     @ti.func
-    def get_edge_vec(self,positions:ti.template(),E:int):
-        return self.positions[self.edges[E][1]]-positions[self.edges[E][0]]
+    def get_edge_vec(self,positions:ti.template(),E:int)->vec:
+        return self.positions[self.geometry.edges[E][1]]-positions[self.geometry.edges[E][0]]
     @ti.func
     def get_edge_segment(self,positions:ti.template(),E:int) -> Segment:
         return Segment(self.positions[self.geometry.edges[E][0]],self.positions[self.geometry.edges[E][1]])

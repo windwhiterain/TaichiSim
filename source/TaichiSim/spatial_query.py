@@ -36,7 +36,7 @@ class Grid(SpatialQuery):
                 is_center=(centeri==I).all()
                 self.values[item_idx]=self.dtype(idx=idx,is_center=is_center)
     @ti.kernel
-    def update_overlaps(self):
+    def update_overlaps(self,on_query:ti.template()):
         for i in range(self.max_item_num-1):
             prev_key=self.keys[i]
             next_key=self.keys[i+1]
@@ -60,15 +60,14 @@ class Grid(SpatialQuery):
                     else:
                         break
                 value_j=self.values[j]
-                self.collistion_action.on_query(i,value_j.idx)
+                on_query(i,value_j.idx)
                 j+=step
     @ti.kernel
     def _clear_keys(self):
         self.keys.fill(ti.u64(morton_invalid))
     def clear(self):
         self._clear_keys()
-    def update(self,collistion_action:'collision_handler.CollisionAction'):
-        self.collistion_action=collistion_action
+    def update(self,on_query:Callable[[int,int],None]):
         ti.algorithms.parallel_sort(self.keys,self.values)
-        self.update_overlaps()
+        self.update_overlaps(on_query)
         

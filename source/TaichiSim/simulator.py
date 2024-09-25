@@ -19,7 +19,7 @@ class Simulator:
     def __init__(self,bound:Bound,solver:'solver.Solver',geometry:'geometry.Geometry') -> None:
         self.bound=bound
         self.max_displace=1/(2/19)/4
-        self.max_radius=4*(2/19)
+        self.max_radius=2*(2/19)
         self.geometry=geometry
 
         #attribute

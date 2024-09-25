@@ -31,12 +31,13 @@ class Grid(SpatialQuery):
             I=veci(i,j,k)
             I+=boundi.min
             if I.x<=boundi.max.x and I.y<=boundi.max.y and I.z<=boundi.max.z:
-                item_idx=idx*8+i*4+i*2+k
+                item_idx=idx*8+i*4+j*2+k
                 self.keys[item_idx]=get_morton(I)
                 is_center=(centeri==I).all()
                 self.values[item_idx]=self.dtype(idx=idx,is_center=is_center)
     @ti.kernel
     def update_overlaps(self,on_query:ti.template()):
+        self.item_num[None]=self.max_item_num
         for i in range(self.max_item_num-1):
             prev_key=self.keys[i]
             next_key=self.keys[i+1]

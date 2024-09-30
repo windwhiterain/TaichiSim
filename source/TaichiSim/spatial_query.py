@@ -68,7 +68,8 @@ class Grid(SpatialQuery):
         self.keys.fill(ti.u64(morton_invalid))
     def clear(self):
         self._clear_keys()
-    def update(self,on_query:Callable[[int,int],None]):
-        ti.algorithms.parallel_sort(self.keys,self.values)
+    def update(self):
+        ti.algorithms.parallel_sort(self.keys,self.values)  
+    def tranverse(self,on_query:Callable[[int,int],None]):
         self.update_overlaps(on_query)
         

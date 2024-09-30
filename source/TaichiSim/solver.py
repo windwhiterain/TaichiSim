@@ -61,7 +61,7 @@ class ProjectiveDynamicSolver(Solver):
     def __init__(self) -> None:
         super().__init__()
     #impl Solver
-    def fit(self,simulator:'Simulator'):
+    def fit(self,simulator:'simulator.Simulator'):
         pass
 
 

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from numpy import indices
 from taichi.lang.struct import Struct
 from taichi.linalg import SparseMatrixBuilder
@@ -7,6 +8,12 @@ from . import solver
 from . import collision_handler
 from . import constraint
 from . import geometry
+
+@dataclass
+class ConstraintUpdateGroup:
+    constraints:list['constraint.Constraint']
+    max_iteration:int
+    check_iteration:int=2
 
 @ti.data_oriented
 class Simulator:
@@ -19,7 +26,7 @@ class Simulator:
     def __init__(self,bound:Bound,solver:'solver.Solver',geometry:'geometry.Geometry') -> None:
         self.bound=bound
         self.max_displace=1/(2/19)/4
-        self.max_radius=2*(2/19)
+        self.max_radius=(2/19)
         self.geometry=geometry
 
         #attribute
@@ -44,6 +51,7 @@ class Simulator:
         self._hession_sparse=root.pointer(ti.ij,(self.geometry.num_point,self.geometry.num_point)).place(self.hession)
         self.H_builder=SparseMatrixBuilder(dim * self.geometry.num_point, dim * self.geometry.num_point, max_num_triplets=(self.geometry.num_point*dim)**2) 
         self.b=ti.ndarray(float,dim*self.geometry.num_point)
+        self.delta_positions=ti.field(vec,self.geometry.num_point)
         self.step=4
 
         #solver
@@ -52,7 +60,7 @@ class Simulator:
         self.solve_requrie_dependency(solver.get_requires())
 
         #collision
-        self.collision_handler=collision_handler.CollisionHandler((2/19)*0.3,(2/19)*0.1,self)
+        self.collision_handler=collision_handler.CollisionHandler((2/19)*0.5,(2/19)*0.1,self)
         
     def solve_requrie_dependency(self,requires:list[str]):
         self.requires=requires
@@ -108,7 +116,27 @@ class Simulator:
     def update_velocity(self,dt:float):
         for V in range(self.geometry.num_point):
             if self.mask[V]:
-                self.velocities[V]+=(self.constrainted_positions[V]-self.positions[V])/dt
+                self.velocities[V]=(self.constrainted_positions[V]-self.prev_positions[V])/dt
+
+    
+
+    def update_constraint(self,groups:list[ConstraintUpdateGroup]):
+        self.delta_positions.fill(vec(0))
+        for group in groups:
+            for constraint in group.constraints:
+                constraint.simulator=self
+                constraint.update()
+        for group in groups:
+            for i in range(group.max_iteration):
+                end=True
+                check=group.check_iteration!=0 and i%group.check_iteration==0
+                for constraint in group.constraints:
+                    constraint.step(check)
+                if check and end:
+                    break 
+        kernel.add(self.constrainted_positions,self.delta_positions)
+        
+        
 
     def update(self, dt:float):
         self.prev_positions.copy_from(self.positions)
@@ -127,11 +155,10 @@ class Simulator:
         self.solver.end_step()
 
 
-
-        self.collision_handler.update()
-
-        
-        self.collision_handler.step()
+        self.update_constraint([
+            ConstraintUpdateGroup([self.collision_handler],4,2),
+            ConstraintUpdateGroup([self.collision_handler.max_displace_constraint],1,0)
+        ])
 
         self.update_velocity(dt)
         self.apply_temp_position()

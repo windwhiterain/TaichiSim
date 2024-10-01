@@ -42,5 +42,7 @@ class MaxLength(Constraint):
                 ti.atomic_sub(simulator.delta_positions[edge.y],delta_length*mass_x/(mass_x+mass_y)*direction)
                 if UPDATE_LOSS:
                     self.loss[None]=tm.max(self.loss[None],1)
+                ti.atomic_add(simulator.constraint_weights[edge.x],1)
+                ti.atomic_add(simulator.constraint_weights[edge.x],1)
 
 

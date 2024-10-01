@@ -52,6 +52,7 @@ class Simulator:
         self.H_builder=SparseMatrixBuilder(dim * self.geometry.num_point, dim * self.geometry.num_point, max_num_triplets=(self.geometry.num_point*dim)**2) 
         self.b=ti.ndarray(float,dim*self.geometry.num_point)
         self.delta_positions=ti.field(vec,self.geometry.num_point)
+        self.constraint_weights=ti.field(float,self.geometry.num_point)
         self.step=4
 
         #solver
@@ -60,7 +61,7 @@ class Simulator:
         self.solve_requrie_dependency(solver.get_requires())
 
         #collision
-        self.collision_handler=collision_handler.CollisionHandler((2/19)*0.5,(2/19)*0.1,self)
+        self.collision_handler=collision_handler.CollisionHandler((2/19)*0.2,(2/19)*0.03,self)
         
     def solve_requrie_dependency(self,requires:list[str]):
         self.requires=requires
@@ -118,8 +119,12 @@ class Simulator:
             if self.mask[V]:
                 self.velocities[V]=(self.constrainted_positions[V]-self.prev_positions[V])/dt
 
-    
-
+    @ti.kernel
+    def apply_delta_positions(self):
+        for p in range(self.geometry.num_point):
+            num_constraint=self.constraint_weights[p]
+            if num_constraint>0:
+                self.constrainted_positions[p]+=self.delta_positions[p]/num_constraint
     def update_constraint(self,groups:list[ConstraintUpdateGroup]):
         for group in groups:
             for constraint in group.constraints:
@@ -128,6 +133,7 @@ class Simulator:
         for group in groups:
             for i in range(group.max_iteration):
                 self.delta_positions.fill(vec(0))
+                self.constraint_weights.fill(0)
                 end=True
                 check=group.check_iteration!=0 and i%group.check_iteration==0
                 for constraint in group.constraints:
@@ -136,7 +142,8 @@ class Simulator:
                         end=False
                 if check and end:
                     break 
-                kernel.add(self.constrainted_positions,self.delta_positions)
+                self.apply_delta_positions()
+                
         
         
 

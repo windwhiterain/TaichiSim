@@ -36,6 +36,7 @@ class Ground(Constraint):
             positon=simulator.constrainted_positions[p]
             if positon.z<self.height:
                 simulator.delta_positions[p]+=vec(0,0,self.height-positon.z)
+                simulator.constraint_weights[p]+=1
                 if UPDATE_LOSS:
                     self.loss[None]=tm.max(self.loss[None],1)
     def get_loss(self) -> float:
@@ -77,6 +78,7 @@ class MaxDisplace(CollisionAction,Constraint):
             if target_length>0 and target_length>max_length:
                 direction=(prev_position-target_position).normalized()
                 simulator.delta_positions[p]+=direction*ti.max(target_length-max_length/self.scale,0)
+                simulator.constraint_weights[p]+=1
                 if UPDATE_LOSS:
                     self.loss[None]=tm.max(self.loss[None],1)
                     
@@ -119,9 +121,11 @@ class MinSegmentDistance(CollisionAction):
             normal=self.get_segment_normal(segment_center,segment_other)
             direction=tm.sign(tm.dot(prev_normal,normal))
             delta_distance=self.handler.repel_distance*self.scale-distance
-            displace=normal*delta_distance*direction
+            displace=normal*delta_distance*direction/2
             ti.atomic_add(simulator.delta_positions[edge_center.x],-displace)
             ti.atomic_add(simulator.delta_positions[edge_center.y],-displace)
+            ti.atomic_add(simulator.constraint_weights[edge_center.x],1)
+            ti.atomic_add(simulator.constraint_weights[edge_center.y],1)
     def get_loss(self)->float:
         return self.loss[None]
             

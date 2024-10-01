@@ -5,14 +5,14 @@ from .solver import *
 
 def test():
     time=0
-    dt = 0.2
+    dt = 0.5
     pause = False
     grid = pcg.Grid(Box2(pair(-1),pair(1)),pairi(19))
     grid.string_energy.scale=256
     cloth = Simulator(Bound(-vec(16),vec(16)),DiagnalHessionSolver(),grid.geometry)
     cloth.energies.append(grid.string_energy)
 
-    target_energy = energy.Target(2,40)
+    target_energy = energy.Target(2,128)
     target_energy.indices[0]=grid.point_idx(0,19)
     target_energy.indices[1]=grid.point_idx(19,19)
     print()
@@ -72,7 +72,7 @@ def test():
                 ti.profiler.print_kernel_profiler_info() 
 
         if not pause:
-            displace=vec(0,-tm.sin(time/10)*min(time/6,1),-1.9*min(1,time/1024))
+            displace=vec(0,-tm.sin(time/40)*min(time/6,1),-1.8*min(1,time/256))
             target_energy.positions[0]=rest_position_0+displace
             target_energy.positions[1]=rest_position_1+displace
             cloth.update(dt)

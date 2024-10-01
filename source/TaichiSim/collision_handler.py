@@ -18,6 +18,32 @@ class CollisionAction:
     def on_query_step(self,update_loss:bool,idx_center:int,idx_other:int,distance:float):pass
 
 @ti.data_oriented
+class Ground(Constraint):
+    def __init__(self, scale: float,height:float) -> None:
+        super().__init__(scale)
+        self.height=height
+        self.loss=ti.field(int,())
+    def step(self,update_loss:bool):
+        self._step(update_loss)
+    @ti.kernel
+    def _step(self,update_loss:ti.template()):
+        UPDATE_LOSS=ti.static(update_loss)
+        simulator=self.simulator
+        geommetry=simulator.geometry
+        if UPDATE_LOSS:
+            self.loss[None]=0
+        for p in simulator.constrainted_positions:
+            positon=simulator.constrainted_positions[p]
+            if positon.z<self.height:
+                simulator.delta_positions[p]+=vec(0,0,self.height-positon.z)
+                if UPDATE_LOSS:
+                    self.loss[None]=tm.max(self.loss[None],1)
+    def get_loss(self) -> float:
+        return self.loss[None]
+
+    
+
+@ti.data_oriented
 class MaxDisplace(CollisionAction,Constraint):
     def __init__(self, handler: 'CollisionHandler',scale:float,max_displace:float) -> None:
         CollisionAction.__init__(self,handler)
@@ -47,10 +73,10 @@ class MaxDisplace(CollisionAction,Constraint):
             target_position=simulator.constrainted_positions[p]
             prev_position=simulator.prev_positions[p]
             target_length=(target_position-prev_position).norm()
-            max_length=tm.max(self.max_displaces[p],epsilon)
-            if target_length>max_length:
+            max_length=tm.max(self.max_displaces[p],0)
+            if target_length>0 and target_length>max_length:
                 direction=(prev_position-target_position).normalized()
-                simulator.delta_positions[p]+=direction*(target_length-max_length/self.scale)
+                simulator.delta_positions[p]+=direction*ti.max(target_length-max_length/self.scale,0)
                 if UPDATE_LOSS:
                     self.loss[None]=tm.max(self.loss[None],1)
                     
@@ -62,17 +88,19 @@ class MinSegmentDistance(CollisionAction):
     def __init__(self, handler: 'CollisionHandler',scale:float) -> None:
         super().__init__(handler)
         self.scale=scale
-        self.determinants=ti.field(float,self.handler.simulator.geometry.num_edge)
         self.loss=ti.field(float,())
     @ti.func
-    def on_query_update(self,idx_center:int,idx_other:int,distance:float):
-        simulator=self.handler.simulator
-        segment_x=simulator.get_edge_segment(simulator.prev_positions,idx_center)
-        segment_y=simulator.get_edge_segment(simulator.prev_positions,idx_other)
-        pivot=segment_x.x
-        vectors=(segment_x.y-pivot,segment_y.x-pivot,segment_y.y-pivot)
-        tensor=ti.Matrix.cols([vectors[0],vectors[1],vectors[2]])
-        self.determinants[idx_center]=tensor.determinant()
+    def get_segment_normal(self,x:Segment,y:Segment)->vec:
+        normal=tm.cross(x.get_vector(),y.get_vector())
+        if normal.norm()<epsilon:
+            tangent=tm.cross(x.x-y.x,y.get_vector())
+            normal=tm.cross(tangent,y.get_vector())
+        if normal.norm()<epsilon:
+            normal=vec(0)
+        else:
+            normal=normal.normalized()
+        project_x,project_y=tm.dot(x.x,normal),tm.dot(y.x,normal)
+        return normal if project_y>project_x else -normal
     @ti.func
     def on_query_step(self,update_loss:ti.template(),idx_center:int,idx_other:int,distance:float):
         UPDATE_LOSS=ti.static(update_loss)
@@ -83,13 +111,17 @@ class MinSegmentDistance(CollisionAction):
             if UPDATE_LOSS:
                 self.loss[None]=tm.max(self.loss[None],delta_distance)
             edge_center=geometry.edges[idx_center]
-            vector_x=simulator.get_edge_vec(simulator.constrainted_positions,idx_center)
-            vector_y=simulator.get_edge_vec(simulator.constrainted_positions,idx_other)
-            determinant=self.determinants[idx_center]
-            direction=tm.cross(vector_x,vector_y)
+            segment_center=simulator.get_edge_segment(simulator.prev_positions,idx_center)
+            segment_other=simulator.get_edge_segment(simulator.prev_positions,idx_other)
+            prev_normal=self.get_segment_normal(segment_center,segment_other)
+            segment_center=simulator.get_edge_segment(simulator.constrainted_positions,idx_center)
+            segment_other=simulator.get_edge_segment(simulator.constrainted_positions,idx_other)
+            normal=self.get_segment_normal(segment_center,segment_other)
+            direction=tm.sign(tm.dot(prev_normal,normal))
             delta_distance=self.handler.repel_distance*self.scale-distance
-            ti.atomic_sub(simulator.delta_positions[edge_center.x],direction*delta_distance*tm.sign(determinant))/2
-            ti.atomic_add(simulator.delta_positions[edge_center.y],direction*delta_distance*tm.sign(determinant))/2
+            displace=normal*delta_distance*direction
+            ti.atomic_add(simulator.delta_positions[edge_center.x],-displace)
+            ti.atomic_add(simulator.delta_positions[edge_center.y],-displace)
     def get_loss(self)->float:
         return self.loss[None]
             
@@ -105,6 +137,7 @@ class CollisionHandler(Constraint):
         self.max_displace_constraint=MaxDisplace(self,1.1,simulator.max_displace)
         self.max_edge_length_constraint=MaxLength(1.1,self.simulator.max_radius*2)
         self.min_segment_length_constraint=MinSegmentDistance(self,1.1)
+        self.ground_constraint=Ground(1,-1.1)
         self.on_query_steps={True:self.get_on_query_step(True),False:self.get_on_query_step(False)}
     @ti.func
     def vec_into_space(self,point:vec)->vec:
@@ -128,7 +161,7 @@ class CollisionHandler(Constraint):
             segment_y=simulator.get_edge_segment(simulator.prev_positions,idx_other)
             distance=get_distance_segment(segment_x,segment_y)
             self.max_displace_constraint.on_query_update(idx_center,idx_other,distance)
-            self.min_segment_length_constraint.on_query_update(idx_center,idx_other,distance)
+            #self.min_segment_length_constraint.on_query_update(idx_center,idx_other,distance)
     @ti.func
     def on_query_step(self,update_loss:ti.template(),idx_center:int,idx_other:int):
         simulator=self.simulator

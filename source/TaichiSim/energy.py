@@ -28,14 +28,16 @@ class Target(Energy):
     @ti.kernel
     def update_gradiants(self):
         simulator=self.simulator
-        for V in self.indices:
-            delta_vec=simulator.constrainted_positions[V]-self.positions[V]
-            simulator.gradiants[V]+=2*self.get_scale(V)*delta_vec
+        for i in self.indices:
+            p=self.indices[i]
+            delta_vec=simulator.constrainted_positions[p]-self.positions[i]
+            simulator.gradiant[p]+=2*self.get_scale(i)*delta_vec
     @ti.kernel
     def update_hession(self):
         simulator=self.simulator
-        for V in self.indices:
-            simulator.hession[V,V]+=mat.identity()*2*self.get_scale(V)
+        for i in self.indices:
+            p=self.indices[i]
+            simulator.hession[p,p]+=mat.identity()*2*self.get_scale(i)
 
 @ti.data_oriented
 class String(Energy):
@@ -56,8 +58,8 @@ class String(Energy):
             norm=(edge_vec.norm()-self.rest_lengths[i])*self.get_scale(i)
             direction=edge_vec.normalized()
             gradiant=direction*norm
-            self.simulator.gradiants[edge[0]]-=gradiant
-            self.simulator.gradiants[edge[1]]+=gradiant
+            self.simulator.gradiant[edge[0]]-=gradiant
+            self.simulator.gradiant[edge[1]]+=gradiant
     def update_hession(self):
         self.update_string_hessions()
         self._update_hession()

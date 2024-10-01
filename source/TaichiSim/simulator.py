@@ -25,7 +25,7 @@ class Simulator:
     }
     def __init__(self,bound:Bound,solver:'solver.Solver',geometry:'geometry.Geometry') -> None:
         self.bound=bound
-        self.max_displace=1/(2/19)/4
+        self.max_displace=(2/19)/8
         self.max_radius=(2/19)
         self.geometry=geometry
 
@@ -46,7 +46,7 @@ class Simulator:
         self.energies=list['energy.Energy']()
         self.prev_positions=ti.field(vec,self.geometry.num_point)
         self.constrainted_positions=ti.field(vec,self.geometry.num_point)
-        self.gradiants=ti.field(vec,self.geometry.num_point)
+        self.gradiant=ti.field(vec,self.geometry.num_point)
         self.hession=ti.field(mat)
         self._hession_sparse=root.pointer(ti.ij,(self.geometry.num_point,self.geometry.num_point)).place(self.hession)
         self.H_builder=SparseMatrixBuilder(dim * self.geometry.num_point, dim * self.geometry.num_point, max_num_triplets=(self.geometry.num_point*dim)**2) 
@@ -81,7 +81,7 @@ class Simulator:
                 builder[V*dim+d,V*dim+d]+=self.geometry.masses[V]
                 
     def update_gradiant(self):
-        self.gradiants.fill(vec(0))
+        self.gradiant.fill(vec(0,0,0.1))
         for energy in self.energies:
             energy.simulator=self
             energy.update_gradiants()
@@ -107,7 +107,7 @@ class Simulator:
                 self.positions[V]+=self.velocities[V]*dt
 
     @ti.kernel
-    def apply_temp_position(self):
+    def apply_prev_position(self):
         for V in range(self.geometry.num_point):
             if self.mask[V]:
                 self.positions[V]=self.constrainted_positions[V]
@@ -121,20 +121,22 @@ class Simulator:
     
 
     def update_constraint(self,groups:list[ConstraintUpdateGroup]):
-        self.delta_positions.fill(vec(0))
         for group in groups:
             for constraint in group.constraints:
                 constraint.simulator=self
                 constraint.update()
         for group in groups:
             for i in range(group.max_iteration):
+                self.delta_positions.fill(vec(0))
                 end=True
                 check=group.check_iteration!=0 and i%group.check_iteration==0
                 for constraint in group.constraints:
                     constraint.step(check)
+                    if check and constraint.get_loss()>0:
+                        end=False
                 if check and end:
                     break 
-        kernel.add(self.constrainted_positions,self.delta_positions)
+                kernel.add(self.constrainted_positions,self.delta_positions)
         
         
 
@@ -154,14 +156,13 @@ class Simulator:
             self.solver.temp_step()
         self.solver.end_step()
 
-
         self.update_constraint([
-            ConstraintUpdateGroup([self.collision_handler],4,2),
+            ConstraintUpdateGroup([self.collision_handler,self.collision_handler.ground_constraint],4,0),
             ConstraintUpdateGroup([self.collision_handler.max_displace_constraint],1,0)
         ])
 
         self.update_velocity(dt)
-        self.apply_temp_position()
+        self.apply_prev_position()
      
     @ti.func
     def get_edge_vec(self,positions:ti.template(),E:int)->vec:

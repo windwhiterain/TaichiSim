@@ -1,4 +1,5 @@
 from os import remove
+from turtle import Shape
 from .math import *
 
 @ti.func
@@ -83,6 +84,35 @@ class Triangle:
         for d in ti.static(range(dim)):
             ret.min[d]=tm.min(self.x[d],self.y[d],self.z[d])
             ret.max[d]=tm.max(self.x[d],self.y[d],self.z[d])
+        return ret
+    @ti.pyfunc
+    def get_bound_sphere(self)->Sphere:
+        ret=Sphere()
+        dotABAB = tm.dot(self.y - self.x, self.y - self.x)
+        dotABAC = tm.dot(self.y - self.x, self.z - self.x)
+        dotACAC = tm.dot(self.z - self.x, self.z - self.x)
+        d = 2*(dotABAB*dotACAC - dotABAC*dotABAC)
+        referencePt = self.x
+        if ti.abs(d) <= epsilon:
+            # a, b, and c lie on a line. Circle center is center of AABB of the
+            # points, and radius is distance from circle center to AABB corner
+            bbox = self.get_bound()
+            ret.center = 0.5 * (bbox.min + bbox.max);
+            referencePt = bbox.min;
+        else:
+            s = (dotABAB*dotACAC - dotACAC*dotABAC) / d
+            t = (dotACAC*dotABAB - dotABAB*dotABAC) / d
+            # s controls height over AC, t over AB, (1-s-t) over BC
+            if s <= 0:
+                ret.center  = 0.5 * (self.x + self.z)
+            elif t <= 0:
+                ret.center  = 0.5 * (self.x + self.y)
+            elif s + t >= 1: 
+                ret.center  = 0.5 * (self.y + self.z)
+                referencePt = self.y
+            else:
+                ret.center  = self.x + s*(self.y - self.x) + t*(self.z - self.x)
+        ret.radius = (ret.center - referencePt).norm()
         return ret
     
 @ti.dataclass

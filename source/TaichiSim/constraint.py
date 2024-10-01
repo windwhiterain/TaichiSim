@@ -8,7 +8,7 @@ class Constraint:
         self.simulator:'simulator.Simulator'=None
     def update(self):pass
     def step(self,update_loss:bool):pass
-    def get_loss(self):pass
+    def get_loss(self)->float:return 0
 
 @ti.data_oriented
 class MaxLength(Constraint):

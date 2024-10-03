@@ -1,4 +1,5 @@
 from cgitb import handler
+from math import sqrt
 from TaichiLib import *
 from TaichiLib.linq import Linq
 from . import spatial_query
@@ -55,8 +56,9 @@ class MaxDisplace(CollisionAction,Constraint):
     def begin_update(self):
         self.max_displaces.fill(self.max_displace)
     @ti.func
-    def on_query_update(self,idx_center:int,idx_other:int,distance:float):
+    def on_query_update(self,idx_center:int,idx_other:int,vector:vec):
         simulator=self.handler.simulator
+        distance=vector.norm()
         edge_center=simulator.geometry.edges[idx_center]
         displace=tm.max(0,distance-self.handler.min_distance)/2
         ti.atomic_min(self.max_displaces[edge_center.x],displace)
@@ -92,36 +94,21 @@ class MinSegmentDistance(CollisionAction):
         self.scale=scale
         self.loss=ti.field(float,())
     @ti.func
-    def get_segment_normal(self,x:Segment,y:Segment)->vec:
-        normal=tm.cross(x.get_vector(),y.get_vector())
-        if normal.norm()<epsilon:
-            tangent=tm.cross(x.x-y.x,y.get_vector())
-            normal=tm.cross(tangent,y.get_vector())
-        if normal.norm()<epsilon:
-            normal=vec(0)
-        else:
-            normal=normal.normalized()
-        project_x,project_y=tm.dot(x.x,normal),tm.dot(y.x,normal)
-        return normal if project_y>project_x else -normal
-    @ti.func
-    def on_query_step(self,update_loss:ti.template(),idx_center:int,idx_other:int,distance:float):
+    def on_query_step(self,update_loss:ti.template(),idx_center:int,idx_other:int,vector:vec):
         UPDATE_LOSS=ti.static(update_loss)
         simulator=self.handler.simulator
         geometry=simulator.geometry
+        distance=vector.norm()
         delta_distance=self.handler.repel_distance-distance
         if delta_distance>0:
             if UPDATE_LOSS:
                 self.loss[None]=tm.max(self.loss[None],delta_distance)
             edge_center=geometry.edges[idx_center]
-            segment_center=simulator.get_edge_segment(simulator.prev_positions,idx_center)
-            segment_other=simulator.get_edge_segment(simulator.prev_positions,idx_other)
-            prev_normal=self.get_segment_normal(segment_center,segment_other)
-            segment_center=simulator.get_edge_segment(simulator.constrainted_positions,idx_center)
-            segment_other=simulator.get_edge_segment(simulator.constrainted_positions,idx_other)
-            normal=self.get_segment_normal(segment_center,segment_other)
-            direction=tm.sign(tm.dot(prev_normal,normal))
-            delta_distance=self.handler.repel_distance*self.scale-distance
-            displace=normal*delta_distance*direction/2
+            normal=vector.normalized()
+            tangent_distance_sqr=distance**2-distance**2
+            target_normal_distance=tm.sqrt((self.handler.repel_distance*self.scale)**2-tangent_distance_sqr)
+            delta_distance=target_normal_distance-distance
+            displace=normal*delta_distance/2
             ti.atomic_add(simulator.delta_positions[edge_center.x],-displace)
             ti.atomic_add(simulator.delta_positions[edge_center.y],-displace)
             ti.atomic_add(simulator.constraint_weights[edge_center.x],1)
@@ -163,8 +150,8 @@ class CollisionHandler(Constraint):
         if not is_adjacent(edge_center,edge_other):
             segment_x=simulator.get_edge_segment(simulator.prev_positions,idx_center)
             segment_y=simulator.get_edge_segment(simulator.prev_positions,idx_other)
-            distance=get_distance_segment(segment_x,segment_y)
-            self.max_displace_constraint.on_query_update(idx_center,idx_other,distance)
+            vector=get_distance_segment(segment_x,segment_y)
+            self.max_displace_constraint.on_query_update(idx_center,idx_other,vector)
             #self.min_segment_length_constraint.on_query_update(idx_center,idx_other,distance)
     @ti.func
     def on_query_step(self,update_loss:ti.template(),idx_center:int,idx_other:int):
@@ -174,8 +161,8 @@ class CollisionHandler(Constraint):
         if not is_adjacent(edge_center,edge_other):
             segment_x=simulator.get_edge_segment(simulator.prev_positions,idx_center)
             segment_y=simulator.get_edge_segment(simulator.prev_positions,idx_other)
-            distance=get_distance_segment(segment_x,segment_y)
-            self.min_segment_length_constraint.on_query_step(update_loss,idx_center,idx_other,distance)
+            vector=get_distance_segment(segment_x,segment_y)
+            self.min_segment_length_constraint.on_query_step(update_loss,idx_center,idx_other,vector)
 
     def get_on_query_step(self,update_loss:bool)->Callable[[int,int],None]:
         @ti.func

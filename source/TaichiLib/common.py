@@ -1,3 +1,4 @@
+from math import inf
 from os import remove
 from turtle import Shape
 from .math import *
@@ -141,15 +142,15 @@ def get_sphere_bound(center:vec,radius:float)->Bound:
     return Bound(center-vec(radius),center+vec(radius))
 
 @ti.func
-def get_distance_point_segment(point:vec,segment:Segment)->tt.struct(parameter=float,distance=float):
+def get_distance_point_segment(point:vec,segment:Segment)->tt.struct(parameter=float,vector=vec):
     length=(segment.y-segment.x).norm()
     direction=(segment.y-segment.x)/length
     displace=tm.dot(point-segment.x,direction)
     displace=tm.clamp(displace,0,length)
-    return ti.Struct(parameter=displace/length,distance=((segment.x+direction*displace)-point).norm())
+    return ti.Struct(parameter=displace/length,vector=(segment.x+direction*displace)-point)
 
 @ti.func
-def get_distance_line(line_x:Segment,line_y:Segment)->tt.struct(parameter=pair,distance=float):
+def get_distance_line(line_x:Segment,line_y:Segment)->tt.struct(parameter=pair,vector=vec):
     vector_x=line_x.y-line_x.x
     vector_y=line_y.y-line_y.x
     n=tm.cross(vector_x,vector_y)
@@ -157,34 +158,39 @@ def get_distance_line(line_x:Segment,line_y:Segment)->tt.struct(parameter=pair,d
     n_y=tm.cross(vector_y,n)
     parameter_x=tm.dot(line_y.x-line_x.x,n_y)/tm.dot(vector_x,n_y)
     parameter_y=tm.dot(line_x.x-line_y.x,n_x)/tm.dot(vector_y,n_x)
-    return ti.Struct(parameter=pair(parameter_x,parameter_y),distance=((line_x.x+parameter_x*vector_x)-(line_y.x+parameter_y*vector_y)).norm())
+    return ti.Struct(parameter=pair(parameter_x,parameter_y),vector=(line_y.x+parameter_y*vector_y)-(line_x.x+parameter_x*vector_x))
 
 @ti.pyfunc
-def get_distance_segment(segment_x:Segment,segment_y:Segment)->float:
-    ret=0.
+def get_distance_segment(segment_x:Segment,segment_y:Segment)->vec:
+    ret=vec(0)
     vector_x=segment_x.get_vector()
     vector_y=segment_y.get_vector()
     if (ti.abs(tm.cross(vector_x,vector_y))<=vec(epsilon)).all():
         param_yx=tm.dot(segment_y.x-segment_x.x,vector_x)
         param_yy=tm.dot(segment_y.y-segment_x.x,vector_x)
         if param_yx>1 and param_yy>1:
-            ret=((segment_y.x if param_yx<param_yy else segment_y.y)-segment_x.y).norm()
+            ret=((segment_y.x if param_yx<param_yy else segment_y.y)-segment_x.y)
         elif param_yx<0 and param_yy<0:
-            ret=((segment_y.x if param_yx>param_yy else segment_y.y)-segment_x.x).norm()
+            ret=((segment_y.x if param_yx>param_yy else segment_y.y)-segment_x.x)
         else:
-            ret=remove_component(segment_y.x-segment_x.x,vector_x).norm()
+            ret=remove_component(segment_y.x-segment_x.x,vector_x)
     else:
         distance_line=get_distance_line(segment_x,segment_y)
-        
         if distance_line.parameter.x>=0 and distance_line.parameter.x<=1 and distance_line.parameter.y>=0 and distance_line.parameter.y<=1:
-            ret=distance_line.distance
+            ret=distance_line.vector
         else:
-            ret=tm.min(
-                get_distance_point_segment(segment_x.x,segment_y).distance,
-                get_distance_point_segment(segment_x.y,segment_y).distance,
-                get_distance_point_segment(segment_y.x,segment_x).distance,
-                get_distance_point_segment(segment_y.x,segment_x).distance
+            vectors=(
+                get_distance_point_segment(segment_x.x,segment_y).vector,
+                get_distance_point_segment(segment_x.y,segment_y).vector,
+                -get_distance_point_segment(segment_y.x,segment_x).vector,
+                -get_distance_point_segment(segment_y.x,segment_x).vector
             )
+            min_distance=inf
+            for i in ti.static(range(4)):
+                distance_sqr=vectors[i].norm_sqr()
+                if distance_sqr<min_distance:
+                    min_distance=distance_sqr
+                    ret=vectors[i]
     return ret
 
 

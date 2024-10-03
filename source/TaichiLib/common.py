@@ -161,37 +161,64 @@ def get_distance_line(line_x:Segment,line_y:Segment)->tt.struct(parameter=pair,v
     return ti.Struct(parameter=pair(parameter_x,parameter_y),vector=(line_y.x+parameter_y*vector_y)-(line_x.x+parameter_x*vector_x))
 
 @ti.pyfunc
-def get_distance_segment(segment_x:Segment,segment_y:Segment)->vec:
-    ret=vec(0)
+def get_distance_segment(segment_x:Segment,segment_y:Segment)->tt.struct(paramter=pair,vector=vec):
+    vector=vec(0)
+    parameter=pair(0)
     vector_x=segment_x.get_vector()
     vector_y=segment_y.get_vector()
     if (ti.abs(tm.cross(vector_x,vector_y))<=vec(epsilon)).all():
         param_yx=tm.dot(segment_y.x-segment_x.x,vector_x)
         param_yy=tm.dot(segment_y.y-segment_x.x,vector_x)
         if param_yx>1 and param_yy>1:
-            ret=((segment_y.x if param_yx<param_yy else segment_y.y)-segment_x.y)
+            if param_yx<param_yy:
+                vector=segment_y.x-segment_x.y
+                parameter=pair(1,0)
+            else:
+                vector=segment_y.y-segment_x.y
+                parameter=pair(1,1)
         elif param_yx<0 and param_yy<0:
-            ret=((segment_y.x if param_yx>param_yy else segment_y.y)-segment_x.x)
+            if param_yx>param_yy:
+                vector=segment_y.x-segment_x.x
+                parameter=pair(0,1)
+            else:
+                vector=segment_y.y-segment_x.x
+                parameter=pair(0,1)
         else:
-            ret=remove_component(segment_y.x-segment_x.x,vector_x)
+            param_center=(tm.max(0,tm.min(param_yx,param_yy))+tm.min(1,tm.max(param_yx,param_yy)))/2
+            parameter=(param_center,remap01(param_center,param_yx,param_yy))
+            vector=remove_component(segment_y.x-segment_x.x,vector_x)
     else:
         distance_line=get_distance_line(segment_x,segment_y)
         if distance_line.parameter.x>=0 and distance_line.parameter.x<=1 and distance_line.parameter.y>=0 and distance_line.parameter.y<=1:
-            ret=distance_line.vector
+            vector=distance_line.vector
+            parameter=distance_line.parameter
         else:
+            parameter_vectors=(
+                get_distance_point_segment(segment_x.x,segment_y),
+                get_distance_point_segment(segment_x.y,segment_y),
+                get_distance_point_segment(segment_y.x,segment_x),
+                get_distance_point_segment(segment_y.y,segment_x)
+            )
+            parameters=(
+                pair(0,parameter_vectors[0].parameter),
+                pair(1,parameter_vectors[1].parameter),
+                pair(parameter_vectors[2].parameter,0),
+                pair(parameter_vectors[3].parameter,1),
+            )
             vectors=(
-                get_distance_point_segment(segment_x.x,segment_y).vector,
-                get_distance_point_segment(segment_x.y,segment_y).vector,
-                -get_distance_point_segment(segment_y.x,segment_x).vector,
-                -get_distance_point_segment(segment_y.x,segment_x).vector
+                parameter_vectors[0].vector,
+                parameter_vectors[1].vector,
+                -parameter_vectors[2].vector,
+                -parameter_vectors[3].vector   
             )
             min_distance=inf
             for i in ti.static(range(4)):
                 distance_sqr=vectors[i].norm_sqr()
                 if distance_sqr<min_distance:
                     min_distance=distance_sqr
-                    ret=vectors[i]
-    return ret
+                    vector=vectors[i]
+                    parameter=parameters[i]
+    return ti.Struct(parameter=parameter,vector=vector)
 
 
 

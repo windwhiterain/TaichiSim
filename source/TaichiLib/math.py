@@ -19,3 +19,7 @@ epsilon=1e-8
 @ti.pyfunc
 def remove_component(self:vec,component:vec)->vec:
     return self-tm.dot(self,component)*component.normalized()
+
+@ti.pyfunc
+def remap01(self:ti.template(),min:ti.template(),max:ti.template()):
+    return (self-min)/(max-min)

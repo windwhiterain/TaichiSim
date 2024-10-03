@@ -125,7 +125,7 @@ class Simulator:
             num_constraint=self.constraint_weights[p]
             if num_constraint>0:
                 self.constrainted_positions[p]+=self.delta_positions[p]/num_constraint
-    def update_constraint(self,groups:list[ConstraintUpdateGroup]):
+    def update_constraints(self,groups:list[ConstraintUpdateGroup]):
         for group in groups:
             for constraint in group.constraints:
                 constraint.simulator=self
@@ -143,6 +143,10 @@ class Simulator:
                 if check and end:
                     break 
                 self.apply_delta_positions()
+
+    def sequence_quadratic_program(self,minimize:list['energy.Energy'],positive_constraints:list['energy.Energy']):
+        pass
+        #self.gradiant
                 
         
         
@@ -163,7 +167,7 @@ class Simulator:
             self.solver.temp_step()
         self.solver.end_step()
 
-        self.update_constraint([
+        self.update_constraints([
             ConstraintUpdateGroup([self.collision_handler,self.collision_handler.ground_constraint],4,0),
             ConstraintUpdateGroup([self.collision_handler.max_displace_constraint],1,0)
         ])

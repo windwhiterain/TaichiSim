@@ -15,7 +15,7 @@ def test():
     target_energy = energy.Target(2,128)
     target_energy.indices[0]=grid.point_idx(0,19)
     target_energy.indices[1]=grid.point_idx(19,19)
-    print()
+    
     cloth.energies.append(target_energy)
     rest_position_0=cloth.geometry.positions[target_energy.indices[0]]
     rest_position_1=cloth.geometry.positions[target_energy.indices[1]]

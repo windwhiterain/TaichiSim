@@ -144,10 +144,15 @@ class Simulator:
                     break 
                 self.apply_delta_positions()
 
-    def sequence_quadratic_program(self,minimize:list['energy.Energy'],positive_constraints:list['energy.Energy']):
-        pass
-        #self.gradiant
-                
+    def sequence_quadratic_program(self,minimizes:list['energy.Energy'],positive_constraints:list['energy.Energy']):
+        minimize_gradiant=ti.field(vec,self.geometry.num_point)
+        self.gradiant.fill(vec(0))
+        for minimize in minimizes:
+            minimize.update_gradiants()
+        minimize_gradiant.copy_from(self.gradiant)
+        self.gradiant.fill(vec(0))
+        for positive_constraint in positive_constraints:
+            positive_constraint.update_gradiants()
         
         
 
@@ -167,14 +172,12 @@ class Simulator:
             self.solver.temp_step()
         self.solver.end_step()
 
-        self.update_constraints([
-            ConstraintUpdateGroup([self.collision_handler,self.collision_handler.ground_constraint],4,0),
-            ConstraintUpdateGroup([self.collision_handler.max_displace_constraint],1,0)
-        ])
+        self.collision_handler.simulator=self
+        self.collision_handler.update()
+        self.collision_handler.step(False)
 
         self.update_velocity(dt)
         self.apply_prev_position()
-     
     @ti.func
     def get_edge_vec(self,positions:ti.template(),E:int)->vec:
         return self.positions[self.geometry.edges[E][1]]-positions[self.geometry.edges[E][0]]

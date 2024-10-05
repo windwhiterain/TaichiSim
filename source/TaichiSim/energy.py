@@ -1,18 +1,16 @@
 from locale import normalize
 from TaichiLib import *
 from TaichiSim import simulator
-from abc import ABC,abstractmethod
 
-class Energy(ABC):
+class Energy:
     def __init__(self,num:int,scale:float) -> None:
         self.simulator:'simulator.Simulator'=None
         self.num=num
         self.scale=scale
         self.scales=ti.field(float,self.num)
         self.scales.fill(1)
-    @abstractmethod
+    def update_value(self):pass
     def update_gradiants(self):pass
-    @abstractmethod
     def update_hession(self):pass
     @ti.pyfunc
     def get_scale(self,idx:int):

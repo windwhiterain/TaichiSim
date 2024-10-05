@@ -13,6 +13,6 @@ A modular, extensible, physic library using taichi.
     - spatial partition
     - [reference](https://developer.nvidia.com/gpugems/gpugems3/part-v-physics-simulation/chapter-32-broad-phase-collision-detection-cuda)
   - collision handler 0.4
-    - DCD but safe via limitating max displacement by distance between simplices
+    - [article](article.md)
     - [reference](https://wanghmin.github.io/publication/wang-2023-fgb/)
 

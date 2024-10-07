@@ -2,14 +2,9 @@ from TaichiLib import *
 from TaichiLib.linq import Linq
 from . import collision_handler
 
-from abc import abstractmethod,ABC
-
-class SpatialQuery(ABC):
-    @abstractmethod
+class SpatialQuery:
     def append(self,bound:BoundI,center:veci,idx:int):pass 
-    @abstractmethod
     def update(self):pass
-    @abstractmethod
     def clear(self):pass
 
 
@@ -24,7 +19,7 @@ class Grid(SpatialQuery):
         self.center_idxs=ti.field(int,elem_num)
         self.item_num=ti.field(int,())
     @ti.func
-    def append(self,bound:Bound,center:veci,idx:int):
+    def append(self,bound:Bound,center:vec,idx:int):
         boundi=bound.get_rounded()
         centeri=tm.round(center,int)
         for i,j,k in ti.static(ti.ndrange((0,2),(0,2),(0,2))):

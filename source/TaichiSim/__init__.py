@@ -72,7 +72,7 @@ def test():
                 ti.profiler.print_kernel_profiler_info() 
 
         if not pause:
-            displace=vec(0,-tm.sin(time/40)*min(time/6,1),-1.8*min(1,time/256))
+            displace=vec(0,-tm.sin(time/100)*min(time/6,1),-1.8*min(1,time/256))
             target_energy.positions[0]=rest_position_0+displace
             target_energy.positions[1]=rest_position_1+displace
             cloth.update(dt)

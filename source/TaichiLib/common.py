@@ -7,6 +7,10 @@ from .math import *
 def is_adjacent(x:pairi,y:pairi):
     return x.x==y.x or x.x==y.y or x.y==y.x or x.y==y.y
 
+@ti.func
+def is_adjacent_vertex_face(vertex:int,face:veci):
+    return vertex==face.x or vertex==face.y or vertex==face.z
+
 @ti.pyfunc
 def flatten_idx2(idx:pairi,shape:pairi)->int:
     return idx.x*shape.y+idx.y
@@ -79,6 +83,9 @@ class Triangle:
     x:vec
     y:vec
     z:vec
+    @ti.func
+    def get_normal(self)->vec:
+        return tm.cross(self.y-self.x,self.z-self.y).normalized()
     @ti.pyfunc
     def get_bound(self)->'Bound':
         ret=Bound()
@@ -137,19 +144,19 @@ class Segment:
     def get_vector(self)->vec:
         return self.y-self.x
 
-@ti.func
+@ti.pyfunc
 def get_sphere_bound(center:vec,radius:float)->Bound:
     return Bound(center-vec(radius),center+vec(radius))
 
-@ti.func
+@ti.pyfunc
 def get_distance_point_segment(point:vec,segment:Segment)->tt.struct(parameter=float,vector=vec):
     length=(segment.y-segment.x).norm()
     direction=(segment.y-segment.x)/length
-    displace=tm.dot(point-segment.x,direction)
+    displace=(point-segment.x)@direction
     displace=tm.clamp(displace,0,length)
     return ti.Struct(parameter=displace/length,vector=(segment.x+direction*displace)-point)
 
-@ti.func
+@ti.pyfunc
 def get_distance_line(line_x:Segment,line_y:Segment)->tt.struct(parameter=pair,vector=vec):
     vector_x=line_x.y-line_x.x
     vector_y=line_y.y-line_y.x
@@ -161,7 +168,7 @@ def get_distance_line(line_x:Segment,line_y:Segment)->tt.struct(parameter=pair,v
     return ti.Struct(parameter=pair(parameter_x,parameter_y),vector=(line_y.x+parameter_y*vector_y)-(line_x.x+parameter_x*vector_x))
 
 @ti.pyfunc
-def get_distance_segment(segment_x:Segment,segment_y:Segment)->tt.struct(paramter=pair,vector=vec):
+def get_distance_segment(segment_x:Segment,segment_y:Segment)->tt.struct(parameter=pair,vector=vec):
     vector=vec(0)
     parameter=pair(0)
     vector_x=segment_x.get_vector()
@@ -220,6 +227,42 @@ def get_distance_segment(segment_x:Segment,segment_y:Segment)->tt.struct(paramte
                     parameter=parameters[i]
     return ti.Struct(parameter=parameter,vector=vector)
 
+@ti.pyfunc
+def get_distance_point_plane(point:vec,plane:Triangle)->tt.struct(parameter=pair,vector=vec):
+    normal=plane.get_normal()
+    space=mat(plane.y-plane.x,plane.z-plane.x,normal)
+    # p@space=point-plane.x
+    p=(point-plane.x)@space.inverse()
+    return ti.Struct(parameter=pair(p.x,p.y),vector=-normal*p.z)
+
+
+
+@ti.pyfunc
+def get_distance_point_triangle(point:vec,triangle:Triangle)->tt.struct(parameter=pair,vector=vec):
+    result=get_distance_point_plane(point,triangle)
+    parameter=result.parameter
+    vector=result.vector
+    if not(parameter.x>=0 and parameter.y>=0 and 1-parameter.x-parameter.y>=0):
+        results=(
+            get_distance_point_segment(point,Segment(triangle.x,triangle.y)),
+            get_distance_point_segment(point,Segment(triangle.y,triangle.z)),
+            get_distance_point_segment(point,Segment(triangle.z,triangle.x))
+        )
+        XY=ti.static(((0,1),(1,2),(2,0)))
+        min_distance_sqr=inf
+        _parameter=vec(0)
+        for i in ti.static(range(3)):
+            _result=results[i]
+            _min_distance_sqr=_result.vector.norm_sqr()
+            if _min_distance_sqr<min_distance_sqr:
+                min_distance_sqr=_min_distance_sqr
+                vector=_result.vector
+                _parameter=vec(0)
+                _parameter[XY[i][1]]=_result.parameter
+                _parameter[XY[i][0]]=1-_result.parameter
+        parameter=_parameter.yz
+    return ti.Struct(parameter=parameter,vector=vector)
+        
 
 
 

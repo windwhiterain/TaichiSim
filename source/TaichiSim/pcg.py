@@ -41,8 +41,8 @@ class Grid:
                 self.point_idx(i+1,j),
                 self.point_idx(i+1,j+1),
             )
-            self.geometry.triangles[self.triangle_idx(i,j,0)]=veci(points[0],points[3],points[1])
-            self.geometry.triangles[self.triangle_idx(i,j,1)]=veci(points[0],points[2],points[3])
+            self.geometry.faces[self.triangle_idx(i,j,0)]=veci(points[0],points[3],points[1])
+            self.geometry.faces[self.triangle_idx(i,j,1)]=veci(points[0],points[2],points[3])
     @ti.kernel
     def update_string(self):
         #axis edge

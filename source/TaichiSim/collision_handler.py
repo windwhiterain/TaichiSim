@@ -1,5 +1,6 @@
 from cgitb import handler
 from math import sqrt
+from operator import ge
 from TaichiLib import *
 from TaichiLib.linq import Linq
 from . import energy
@@ -71,6 +72,17 @@ class MaxDisplace(CollisionAction,Constraint):
         displace=tm.max(0,distance-self.handler.min_distance)/2
         ti.atomic_min(self.max_displaces[edge_center.x],displace)
         ti.atomic_min(self.max_displaces[edge_center.y],displace)
+    @ti.func
+    def on_query_point_triangle_update(self,idx_center:int,idx_other:int,vector:vec,parameter:pair):
+        simulator=self.handler.simulator
+        geometry=simulator.geometry
+        distance=vector.norm()
+        face=geometry.faces[idx_other]
+        displace=tm.max(0,distance-self.handler.min_distance)/2
+        ti.atomic_min(self.max_displaces[idx_center],displace)
+        ti.atomic_min(self.max_displaces[face.x],displace)
+        ti.atomic_min(self.max_displaces[face.y],displace)
+        ti.atomic_min(self.max_displaces[face.z],displace)
     def step(self,update_loss:bool):
         self._step(update_loss)
     @ti.kernel
@@ -94,8 +106,9 @@ class MaxDisplace(CollisionAction,Constraint):
             if root_target_length>self.max_displace:
                 direction=(position-root_position).normalized()
                 position=root_position+direction*self.max_displace
-            if (position!=vec(0)).all():
+            if (position!=vec(0)).any():
                 simulator.delta_positions[p]+=position-target_position
+                simulator.constraint_weights[p]+=1
                 if UPDATE_LOSS:
                     self.loss[None]=tm.max(self.loss[None],1)
                     
@@ -142,6 +155,31 @@ class MinSegmentDistance(CollisionAction):
             ti.atomic_add(simulator.hession[edge_center.y,edge_center.y],hession*(1-parameter.x))
     def get_loss(self)->float:
         return self.loss[None]
+    
+@ti.data_oriented
+class MinPointTriangleDistance:
+    def __init__(self, handler: 'CollisionHandler') -> None:
+        self.handler=handler
+    @ti.func
+    def on_query_update_gradiant_hession(self,idx_center:int,idx_other:int,vector:vec,parameter:pair):
+        simulator=self.handler.simulator
+        geometry=simulator.geometry
+        distance=vector.norm()
+        delta_distance=self.handler.repel_distance-distance
+        if delta_distance>0:
+            face=geometry.faces[idx_other]
+            triangle=geometry.get_triangle(simulator.constrainted_positions,idx_other)
+            normal=triangle.get_normal()
+            gradiant=delta_distance*tm.sign(vector@normal)*normal
+            hession=normal.outer_product(normal)
+            ti.atomic_add(simulator.gradiant[idx_center],gradiant)
+            ti.atomic_add(simulator.hession[idx_center,idx_center],hession)
+            ti.atomic_add(simulator.gradiant[face.x],-gradiant*(1-parameter.x-parameter.y))
+            ti.atomic_add(simulator.hession[face.x,face.x],hession*(1-parameter.x-parameter.y))
+            ti.atomic_add(simulator.gradiant[face.y],-gradiant*parameter.x)
+            ti.atomic_add(simulator.hession[face.y,face.y],hession*parameter.x)
+            ti.atomic_add(simulator.gradiant[face.z],-gradiant*parameter.y)
+            ti.atomic_add(simulator.hession[face.z,face.z],hession*parameter.y)
             
 
 @ti.data_oriented
@@ -151,10 +189,12 @@ class CollisionHandler(Constraint):
         self.min_distance=min_distance
         self.simulator=simulator
         self.unit=2*(simulator.max_radius+simulator.max_displace+self.repel_distance/2)*tm.sqrt(2)
-        self.points_query=spatial_query.Grid(self.simulator.geometry.num_edge)
+        self.edge_query=spatial_query.Grid(self.simulator.geometry.num_edge)
+        self.point_triangle_query=spatial_query.Grid(self.simulator.geometry.num_point+self.simulator.geometry.num_triangle)
         self.max_displace_constraint=MaxDisplace(self,1.1,simulator.max_displace)
         self.max_edge_length_constraint=MaxLength(1.1,self.simulator.max_radius*2)
-        self.min_segment_distance_constraint=MinSegmentDistance(self,1.1)
+        self.min_segment_distance_constraint=MinSegmentDistance(self,1)
+        self.min_point_triangle_distance_energy=MinPointTriangleDistance(self)
         self.ground_constraint=Ground(1,-1.1)
         self.target_positions=ti.field(vec,self.simulator.geometry.num_point)
         self.on_query_steps={True:self.get_on_query_step(True),False:self.get_on_query_step(False)}
@@ -169,7 +209,19 @@ class CollisionHandler(Constraint):
         for i in self.simulator.geometry.edges:
             segment=self.simulator.get_edge_segment(self.simulator.prev_positions,i)
             bound=self.bound_into_space(segment.get_bound_sphere().get_extended(self.simulator.max_displace+self.min_distance/2).get_scaled(tm.sqrt(2)).get_bound_box())
-            self.points_query.append(bound,bound.get_center(),i)
+            self.edge_query.append(bound,bound.get_center(),i)
+    @ti.kernel
+    def append_point_triangles(self):
+        simulator=self.simulator
+        geometry=simulator.geometry
+        for p in range(geometry.num_point):
+            point=simulator.prev_positions[p]
+            bound=self.bound_into_space(Sphere(point,0).get_extended(self.simulator.max_displace+self.min_distance/2).get_scaled(tm.sqrt(2)).get_bound_box())
+            self.point_triangle_query.append(bound,bound.get_center(),p)
+        for t in range(geometry.num_triangle):
+            triangle=geometry.get_triangle(simulator.prev_positions,t)
+            bound=self.bound_into_space(triangle.get_bound_sphere().get_extended(self.simulator.max_displace+self.min_distance/2).get_scaled(tm.sqrt(2)).get_bound_box())
+            self.point_triangle_query.append(bound,bound.get_center(),t+geometry.num_point)
     @ti.func
     def on_query_update(self,idx_center:int,idx_other:int):
         simulator=self.simulator
@@ -181,6 +233,19 @@ class CollisionHandler(Constraint):
             parameter_vector=get_distance_segment(segment_x,segment_y)
             self.max_displace_constraint.on_query_update(idx_center,idx_other,parameter_vector.vector,parameter_vector.parameter)
             #self.min_segment_length_constraint.on_query_update(idx_center,idx_other,distance)
+    @ti.func
+    def on_query_point_triangle_update(self,idx_center:int,idx_other:int):
+        simulator=self.simulator
+        geometry=simulator.geometry
+        if idx_center<geometry.num_point and idx_other>=geometry.num_point:
+            idx_other-=geometry.num_point
+            face=geometry.faces[idx_other]
+            if not is_adjacent_vertex_face(idx_center,face):
+                point=simulator.constrainted_positions[idx_center]
+                triangle=geometry.get_triangle(simulator.constrainted_positions,idx_other)
+                result=get_distance_point_triangle(point,triangle)
+                self.max_displace_constraint.on_query_point_triangle_update(idx_center,idx_other,result.vector,result.parameter)
+
     @ti.func
     def on_query_step(self,update_loss:ti.template(),idx_center:int,idx_other:int):
         simulator=self.simulator
@@ -199,6 +264,19 @@ class CollisionHandler(Constraint):
         return _
     
     @ti.func
+    def on_query_point_triangle_update_gradiant_hession(self,idx_center:int,idx_other:int):
+        simulator=self.simulator
+        geometry=simulator.geometry
+        if idx_center<geometry.num_point and idx_other>=geometry.num_point:
+            idx_other-=geometry.num_point
+            face=geometry.faces[idx_other]
+            if not is_adjacent_vertex_face(idx_center,face):
+                point=simulator.constrainted_positions[idx_center]
+                triangle=geometry.get_triangle(simulator.constrainted_positions,idx_other)
+                result=get_distance_point_triangle(point,triangle)
+                self.min_point_triangle_distance_energy.on_query_update_gradiant_hession(idx_center,idx_other,result.vector,result.parameter)
+
+    @ti.func
     def on_query_update_gradiant_hession(self,idx_center:int,idx_other:int):
         simulator=self.simulator
         edge_center=simulator.geometry.edges[idx_center]
@@ -216,18 +294,24 @@ class CollisionHandler(Constraint):
         self.ground_constraint.simulator=self.simulator
         self.max_displace_constraint.simulator=self.simulator
         self.max_displace_constraint.begin_update()
-        self.points_query.clear()
-        self.append_segments()
-        self.points_query.update()
+
+        # self.edge_query.clear()
+        # self.append_segments()
+        # self.edge_query.update()
+
+        self.point_triangle_query.clear()
+        self.append_point_triangles()
+        self.point_triangle_query.update()
 
     def step(self,update_loss:bool):
         for i in range(2):
             self.min_segment_distance_constraint.begin_update()
-            self.points_query.tranverse(self.on_query_update)
+            self.point_triangle_query.tranverse(self.on_query_point_triangle_update)
 
             self.simulator.gradiant.fill(vec(0))
             self.simulator._hession_sparse.deactivate_all()
-            self.points_query.tranverse(self.on_query_update_gradiant_hession)
+            #self.edge_query.tranverse(self.on_query_update_gradiant_hession)
+            self.point_triangle_query.tranverse(self.on_query_point_triangle_update_gradiant_hession)
             self.ground_constraint.update_gradiant_hession()
             self._step()
 
